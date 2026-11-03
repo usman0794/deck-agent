@@ -63,16 +63,47 @@ def critique(topic, result, options, best, cfg, use_ai):
     return {"concerns": concerns, "mode": "rules"}
 
 
-def confidence(sensitivity_result, options, best):
-    """Label confidence from the sensitivity wins; name an alternative when Low."""
+def confidence(sensitivity_result, options, best, evidence_strength=0, has_research=False):
+    """Label confidence from the sensitivity wins; cap at Medium without verified evidence."""
     wins = sensitivity_result["wins"]
     total = sensitivity_result["total"]
     count = wins.get(best, 0)
     label = "High" if count >= 5 else "Medium" if count >= 3 else "Low"
+    if has_research and evidence_strength == 0 and label == "High":
+        label = "Medium"
     alternative = None
     if label == "Low":
         others = [i for i in wins if i != best]
         if others:
             runner = max(others, key=lambda i: wins[i])
             alternative = options[runner]["name"]
-    return {"label": label, "wins": count, "total": total, "alternative": alternative}
+    return {"label": label, "wins": count, "total": total, "alternative": alternative,
+            "evidence_strength": evidence_strength}
+
+
+def why_not_others(options, best):
+    """Code-generated 'why not' text for each rejected option."""
+    winner = options[best]
+    texts = {}
+    for i, o in enumerate(options):
+        if i == best:
+            continue
+        diffs = []
+        if winner["impact"] > o["impact"]:
+            diffs.append("impact")
+        if winner["cost"] < o["cost"]:
+            diffs.append("lower cost")
+        if winner["risk"] < o["risk"]:
+            diffs.append("lower risk")
+        if winner["speed"] > o["speed"]:
+            diffs.append("speed")
+        texts[str(i)] = f"{o['name']} loses on {', '.join(diffs) or 'overall balance'}."
+    return texts
+
+
+def is_tie(scored, best=None):
+    """True when the top two scores are equal."""
+    if len(scored) < 2:
+        return False
+    ordered = sorted(range(len(scored)), key=lambda i: scored[i]["score"], reverse=True)
+    return abs(scored[ordered[0]]["score"] - scored[ordered[1]]["score"]) < 1e-9

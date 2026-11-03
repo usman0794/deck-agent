@@ -93,7 +93,91 @@ def make_reason(scored, best):
     return f"{winner['name']} leads {runner['name']} on {', '.join(criteria)}."
 
 
-def run_agent(df, user_text, cfg, use_ai, overrides=None, asked=None):
+def _decorate_options(options, analysis, problem, direction, group_col, research_result):
+    """Add idea, steps, evidence ids, expected effect, risk and failure condition."""
+    themes = (research_result or {}).get("themes", {})
+    groups = analysis.get("groups")
+    if groups is None:
+        groups = {}
+    theme_for = {"Target": "causes", "Copy": "good_practices", "Spread": "benchmarks",
+                 "Quick win": "risks", "Pilot": "good_practices", "Concentrate": "benchmarks"}
+    for o in options:
+        name = o.get("name", "")
+        prefix = next((p for p in theme_for if name.startswith(p)), "")
+        theme = theme_for.get(prefix, "good_practices")
+        o["evidence_ids"] = list(themes.get(theme, []))[:2]
+        o["expected_effect"] = f"estimate: {o.get('est_effect', 'n/a')}"
+        target = analysis["top"] if direction == "reduce" else analysis["low"]
+        if name.startswith("Target"):
+            o["idea"] = f"Focus on {target}, the largest contributor."
+            o["how_it_works"] = [f"Identify the {group_col} groups driving {problem}.",
+                                 f"Focus effort on {target}.", "Review weekly and reallocate."]
+            o["main_risk"] = "The target group may not respond; the effect may be smaller than estimated."
+            o["failure_condition"] = "No measurable change in the metric within 60 days."
+        elif name.startswith("Copy"):
+            best = analysis["low"] if direction == "reduce" else analysis["top"]
+            o["idea"] = f"Apply what {best} does well to the other groups."
+            o["how_it_works"] = [f"Study what {best} does differently.",
+                                 "Document the practice and adapt it.",
+                                 "Roll out with training and check adoption."]
+            o["main_risk"] = "The practice may not transfer to other groups."
+            o["failure_condition"] = "Adoption stays below half after one quarter."
+        elif name.startswith("Spread"):
+            o["idea"] = f"Distribute effort evenly across all {group_col} groups."
+            o["how_it_works"] = [f"Define the same baseline action for every {group_col}.",
+                                 "Allocate effort evenly.", "Monitor variation and adjust."]
+            o["main_risk"] = "Spreading effort may dilute impact in the worst groups."
+            o["failure_condition"] = "No group improves by at least 10%."
+        elif name.startswith("Quick win"):
+            small = min(groups.index, key=lambda k: float(groups[k])) if groups is not None and len(groups) else target
+            o["idea"] = f"Start with {small}, the smallest group, for a fast win."
+            o["how_it_works"] = [f"Pick {small} as a low-risk starting point.",
+                                 "Run a short, contained improvement.", "Use the result to build momentum."]
+            o["main_risk"] = "The win may be too small to matter."
+            o["failure_condition"] = "The quick win does not complete within 30 days."
+        elif name.startswith("Pilot"):
+            ordered = sorted(groups.index, key=lambda k: float(groups[k])) if groups is not None and len(groups) else [target]
+            pilot = ordered[len(ordered) // 2] if ordered else target
+            o["idea"] = f"Test the approach in {pilot} first, then scale."
+            o["how_it_works"] = [f"Run a pilot in {pilot}.", "Measure and refine.",
+                                 "Scale to the other groups."]
+            o["main_risk"] = "The pilot may not represent the other groups."
+            o["failure_condition"] = "The pilot shows no improvement within 60 days."
+        elif name.startswith("Concentrate"):
+            shares = {str(k): float(v) for k, v in groups.items()}
+            top = sorted(shares, key=shares.get, reverse=True)[:2]
+            o["idea"] = f"Put most effort into the top contributors: {', '.join(top)}."
+            o["how_it_works"] = [f"Identify the top contributors: {', '.join(top)}.",
+                                 "Concentrate budget and attention there.", "Track the combined effect."]
+            o["main_risk"] = "Over-concentration may neglect smaller groups."
+            o["failure_condition"] = "The top contributors do not improve within 60 days."
+        else:
+            o["idea"] = o.get("summary", "")
+            o["how_it_works"] = ["Define the action.", "Implement and measure.", "Review and adjust."]
+            o["main_risk"] = "Execution risk."
+            o["failure_condition"] = "No measurable effect within 90 days."
+    return options
+
+
+def _has_duplicates(options):
+    """True when two options share a name or a target group."""
+    names = [o.get("name") for o in options]
+    if len(set(names)) != len(names):
+        return True
+    targets = []
+    for o in options:
+        name = o.get("name", "")
+        target = None
+        for prefix in ("Target ", "Copy ", "Quick win in ", "Pilot in ", "Concentrate on "):
+            if name.startswith(prefix):
+                target = name[len(prefix):].split(" and ")[0].split(",")[0].strip()
+                break
+        targets.append(target)
+    non_null = [t for t in targets if t]
+    return len(set(non_null)) != len(non_null)
+
+
+def run_agent(df, user_text, cfg, use_ai, overrides=None, asked=None, research_result=None):
     """Run stages 1-4. Returns status, questions (when needed) and the full result."""
     overrides = overrides or {}
     asked = set(asked or [])
@@ -159,6 +243,13 @@ def run_agent(df, user_text, cfg, use_ai, overrides=None, asked=None):
     if not options:
         options = archetypes.build_options(problem_type["type"], analysis,
                                            intent["problem"], direction, analysis["category"])
+    options = _decorate_options(options, analysis, intent["problem"], direction,
+                                analysis["category"], research_result)
+    if _has_duplicates(options):
+        options = archetypes.build_options(problem_type["type"], analysis,
+                                           intent["problem"], direction, analysis["category"])
+        options = _decorate_options(options, analysis, intent["problem"], direction,
+                                    analysis["category"], research_result)
     clamp_options(options)
     findings += guardrails.validate_options(options)
     scored = score_options(options)
@@ -167,7 +258,12 @@ def run_agent(df, user_text, cfg, use_ai, overrides=None, asked=None):
     reason = make_reason(scored, best)
     sens = check.sensitivity(scored)
     crit = check.critique(intent["problem"], analysis, scored, best, cfg, use_ai)
-    conf = check.confidence(sens, scored, best)
+    has_research = bool(research_result and research_result.get("findings"))
+    evidence_strength = len(scored[best].get("evidence_ids", [])) if has_research else 0
+    conf = check.confidence(sens, scored, best, evidence_strength=evidence_strength,
+                            has_research=has_research)
+    why_not = check.why_not_others(scored, best)
+    tie = check.is_tie(scored)
     return {
         "status": "ok",
         "profile": profile,
@@ -178,7 +274,9 @@ def run_agent(df, user_text, cfg, use_ai, overrides=None, asked=None):
         "options": scored,
         "best": best,
         "reason": reason,
-        "check": {"sensitivity": sens, "critique": crit, "confidence": conf},
+        "check": {"sensitivity": sens, "critique": crit, "confidence": conf,
+                  "why_not": why_not, "tie": tie, "evidence_strength": evidence_strength},
         "findings": findings,
         "mode": mode,
+        "research": research_result or {},
     }

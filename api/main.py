@@ -111,6 +111,16 @@ def generate_options(session_id: str, req: OptionsRequest, _user=Depends(get_cur
     return workflow.generate_options(session_id, req.use_ai)
 
 
+@app.post("/sessions/{session_id}/research")
+def run_research(session_id: str, _user=Depends(get_current_user)):
+    return workflow.run_research(session_id)
+
+
+@app.get("/sessions/{session_id}/sources")
+def get_sources(session_id: str, _user=Depends(get_current_user)):
+    return workflow.get_sources(session_id)
+
+
 @app.patch("/sessions/{session_id}/ratings")
 def update_ratings(session_id: str, req: RatingsRequest, _user=Depends(get_current_user)):
     return workflow.update_ratings(session_id, req.option_ratings, req.weights)

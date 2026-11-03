@@ -12,7 +12,7 @@ All requests and responses are JSON unless noted. Errors are returned as:
 ## Session states
 
 ```
-created → data_loaded → needs_input | understood → options_ready → decided → deck_ready
+created → data_loaded → needs_input | understood → researched → options_ready → decided → deck_ready
                 └────────────────────→ blocked
 ```
 
@@ -167,6 +167,22 @@ Return guardrail findings for the session.
 
 ```bash
 curl http://localhost:8000/sessions/<id>/audit
+```
+
+### POST /sessions/{id}/research
+
+Run external deep research (search, fetch, extract, verify). Returns themes, findings, sources and coverage.
+
+```bash
+curl -X POST http://localhost:8000/sessions/<id>/research
+```
+
+### GET /sessions/{id}/sources
+
+Return the verified sources found for the session.
+
+```bash
+curl http://localhost:8000/sessions/<id>/sources
 ```
 
 ## Authentication

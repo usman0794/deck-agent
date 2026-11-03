@@ -146,7 +146,7 @@ def test_pptx_has_required_slides(monkeypatch):
     pptx_bytes = build.build_pptx(p, df, out["result"], _cfg())
     prs = Presentation(io.BytesIO(pptx_bytes))
     titles = [s.shapes.title.text for s in prs.slides if s.shapes.title is not None]
-    assert "The problem" in titles
+    assert "The problem as understood" in titles
     assert "Robustness" in titles
     assert "Recommendation and why" in titles
 

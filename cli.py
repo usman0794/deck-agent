@@ -5,9 +5,11 @@ python cli.py data.csv --text "we pay too much overtime and need a plan" \
     [--metric ...] [--category ...] [--use-ai] [--out briefing.pptx]
 """
 import argparse
+import importlib.util
 import json
 from pathlib import Path
 
+from core import research_web
 from service import workflow
 
 ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -20,8 +22,23 @@ ap.add_argument("--goal", choices=["increase", "reduce"], help="Override the goa
 ap.add_argument("--metric", help="Override the metric column")
 ap.add_argument("--category", help="Override the group column")
 ap.add_argument("--use-ai", action="store_true")
+ap.add_argument("--research", action="store_true", default=None,
+                help="Run external research (default: on when a search provider is available)")
+ap.add_argument("--no-research", action="store_false", dest="research",
+                help="Skip external research")
 ap.add_argument("--out", default="briefing.pptx")
 a = ap.parse_args()
+
+
+def _research_available():
+    try:
+        cfg = json.loads(Path(__file__).with_name("config.json").read_text())
+        provider = research_web.get_search_provider(cfg)
+        if isinstance(provider, research_web.DDGSProvider):
+            return importlib.util.find_spec("ddgs") is not None
+        return True
+    except Exception:
+        return False
 
 session = workflow.create_session()
 sid = session["id"]
@@ -51,6 +68,21 @@ if a.category:
     edits["group"] = a.category
 if edits:
     result = workflow.confirm_understanding(sid, edits)
+
+if a.research is None:
+    if _research_available():
+        a.research = True
+    else:
+        a.research = False
+if a.research:
+    r = workflow.run_research(sid)
+    if r.get("status") == "blocked":
+        print(f"Research skipped: {r.get('message', '')}")
+    else:
+        print(f"Research: status={r.get('status')} coverage={r.get('coverage', 0):.0%} "
+              f"findings={len(r.get('findings', []))} sources={len(r.get('sources', []))}")
+        if r.get("message"):
+            print(f"Research message: {r.get('message')}")
 
 result = workflow.generate_options(sid, use_ai=a.use_ai)
 if result["status"] != "options_ready":

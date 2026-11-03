@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from core import analyze, build, check, decide, guardrails, plan, research, understand
+from core import analyze, build, check, decide, guardrails, plan, research, research_web, understand
 from service.session import Session, get_store
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -165,13 +165,44 @@ def confirm_understanding(session_id, edits):
             "session": session.to_dict()}
 
 
-def generate_options(session_id, use_ai=False):
+def run_research(session_id):
     session = _get(session_id)
     if session.status not in ("understood", "needs_input"):
         return _error("NOT_READY", "Confirm understanding first")
+    if not session.data_ref:
+        return _error("NO_DATA", "Upload data first")
+    df = _load_df(session)
+    group_col = session.intent.get("group")
+    group_values = None
+    if group_col in df.columns:
+        group_values = [str(v) for v in df[group_col].dropna().unique().tolist()[:50]]
+    result = research_web.research(
+        session.intent.get("problem", "Decision"),
+        session.problem_type.get("type", "improve"),
+        list(df.columns), CFG,
+        use_ai=research.available(CFG),
+        group_values=group_values,
+    )
+    session.research = result
+    session.status = "researched"
+    session.updated_at = _now()
+    STORE.save(session)
+    return {"status": result.get("status", "ok"), "themes": result.get("themes", {}),
+            "findings": result.get("findings", []), "coverage": result.get("coverage", 0.0),
+            "sources": result.get("sources", []), "message": result.get("message", ""),
+            "kept": result.get("kept", 0), "dropped": result.get("dropped", 0),
+            "model_calls": result.get("model_calls", 0),
+            "session": session.to_dict()}
+
+
+def generate_options(session_id, use_ai=False):
+    session = _get(session_id)
+    if session.status not in ("understood", "needs_input", "researched"):
+        return _error("NOT_READY", "Confirm understanding first")
     df = _load_df(session)
     out = decide.run_agent(df, session.user_text, CFG, use_ai,
-                           overrides=session.intent, asked=set(session.questions_asked))
+                           overrides=session.intent, asked=set(session.questions_asked),
+                           research_result=session.research or None)
     session.profile = out.get("profile", session.profile)
     session.intent = out.get("user_intent", session.intent)
     session.problem_type = out.get("problem_type", session.problem_type)
@@ -265,6 +296,7 @@ def build_deck(session_id, template_bytes=None):
         "reason": session.reason,
         "check": session.check,
         "problem_type": session.problem_type,
+        "research": session.research or {},
     }
     slides = plan.make_plan(result, session.intent.get("problem", "Decision"),
                             CFG.get("organisation", "Organisation"), CFG, agent=agent)
@@ -288,4 +320,19 @@ def get_audit(session_id):
         "best": session.best,
         "plan": None,
     })
-    return {"status": session.status, "findings": findings, "session": session.to_dict()}
+    audit = {
+        "queries": (session.research or {}).get("queries", []),
+        "source_urls": [s.get("url") for s in (session.research or {}).get("sources", [])],
+        "kept": (session.research or {}).get("kept", 0),
+        "dropped": (session.research or {}).get("dropped", 0),
+        "model_calls": (session.research or {}).get("model_calls", 0),
+    }
+    return {"status": session.status, "findings": findings, "audit": audit,
+            "session": session.to_dict()}
+
+
+def get_sources(session_id):
+    session = _get(session_id)
+    return {"status": session.status,
+            "sources": (session.research or {}).get("sources", []),
+            "session": session.to_dict()}

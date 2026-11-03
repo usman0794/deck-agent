@@ -15,3 +15,6 @@ build_briefing.py
 # Sessions and uploaded data (file store)
 sessions/
 session_data/
+
+# Research page cache
+cache/

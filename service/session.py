@@ -36,6 +36,7 @@ class Session:
     data_summary: dict = field(default_factory=dict)
     reason: str = ""
     check: dict = field(default_factory=dict)
+    research: dict = field(default_factory=dict)
     created_at: str = field(default_factory=_now)
     updated_at: str = field(default_factory=_now)
 
