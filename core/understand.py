@@ -161,7 +161,7 @@ def interpret_data(df, profile, cfg, use_ai):
     }
 
 
-def understand_user(text, columns, cfg, use_ai, df=None):
+def understand_user(text, columns, cfg, use_ai, df=None, numeric_columns=None, categorical_columns=None):
     """Extract problem, goal, metric, group, constraints and audience from plain words."""
     text = (text or "").strip()
     group_values = {}
@@ -203,11 +203,13 @@ def understand_user(text, columns, cfg, use_ai, df=None):
     elif any(w in lower for w in REDUCE_WORDS):
         goal = "reduce"
     # fuzzy match columns and group values
-    metric, metric_score = _fuzzy_find(text, columns)
-    group, group_score = _fuzzy_find(text, [c for c in columns if c != metric] if metric else columns)
+    metric_cols = numeric_columns if numeric_columns is not None else columns
+    group_cols = categorical_columns if categorical_columns is not None else columns
+    metric, metric_score = _fuzzy_find(text, metric_cols)
+    group, group_score = _fuzzy_find(text, [c for c in group_cols if c != metric])
     matched_groups = []
-    for col, values in group_values.items():
-        for v in values:
+    for col in group_cols:
+        for v in group_values.get(col, []):
             m, s = _fuzzy_find(text, [v])
             if m and s >= 0.8:
                 matched_groups.append({"column": col, "value": v, "score": round(s, 2)})

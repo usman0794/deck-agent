@@ -101,7 +101,11 @@ def run_agent(df, user_text, cfg, use_ai, overrides=None, asked=None):
     profile = understand.profile_data(df)
     data_summary = understand.interpret_data(df, profile, cfg, use_ai)
     problem_type = problem.classify_problem(user_text, cfg, use_ai)
-    intent = understand.understand_user(user_text, list(df.columns), cfg, use_ai, df=df)
+    numeric_cols = list(profile.get("numeric", {}).keys())
+    categorical_cols = list(profile.get("categories", {}).keys())
+    intent = understand.understand_user(user_text, list(df.columns), cfg, use_ai, df=df,
+                                        numeric_columns=numeric_cols,
+                                        categorical_columns=categorical_cols)
     for key in ("problem", "goal", "metric", "group", "constraints", "audience"):
         if overrides.get(key) not in (None, ""):
             intent[key] = overrides[key]
