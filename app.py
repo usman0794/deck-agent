@@ -26,7 +26,7 @@ from pathlib import Path
 
 import streamlit as st
 
-from core import analyze as an, auth, build, data, plan as pl, research, scraper
+from core import analyze as an, auth, build, data, decide as dc, plan as pl, research, scraper
 
 ROOT = Path(__file__).parent
 CFG = json.loads((ROOT / "config.json").read_text())
@@ -304,24 +304,29 @@ if _current == TABS[1]:
         if ss.get("df") is None:
             st.info("Load data first.")
         else:
-            topic = st.text_input("Decision or topic",
-                                  placeholder="e.g. Expand the bus fleet on urban routes")
+            problem = st.text_input("Problem to solve",
+                                    placeholder="e.g. Reduce overtime cost")
             org = st.text_input("Organisation", placeholder="e.g. Your Organisation")
-            topic = topic.strip() or "Briefing"
+            goal = st.selectbox("Goal", ["reduce", "increase"], index=0)
+            metric = st.text_input("Metric column", placeholder="e.g. overtime_hours")
+            category = st.text_input("Group column", placeholder="e.g. department")
+            problem = problem.strip() or "Decision"
             org = org.strip() or CFG["organisation"]
             tpl = st.file_uploader("Optional base template (.pptx with your logo and fonts)", type=["pptx"])
             ss.template = tpl.getvalue() if tpl else None
             is_admin = ss.get("role", "admin") == "admin"
-            use_ai = st.checkbox("Add AI-drafted context and actions (draft only, verify)",
+            use_ai = st.checkbox("Add AI-drafted options (draft only, verify)",
                                  disabled=(not research.available(CFG)) or not is_admin,
                                  help="Needs an AI key in .env and an admin account.")
             if st.button("Draft slide plan", type="primary"):
                 try:
-                    r = an.analyze(ss.df)
-                    p = pl.make_plan(r, topic, org, CFG)
-                    if use_ai:
-                        p = pl.make_plan(r, topic, org, CFG, research.research(topic, p[1]["bullets"], CFG))
-                    ss.result, ss.plan, ss.ver, ss.pptx = r, p, ss.get("ver", 0) + 1, None
+                    detected = an.analyze(ss.df)
+                    agent = dc.run_agent(ss.df, problem, goal,
+                                         metric.strip() or detected["metric"],
+                                         category.strip() or detected["category"],
+                                         CFG, use_ai)
+                    p = pl.make_plan(agent["result"], problem, org, CFG, agent=agent)
+                    ss.result, ss.plan, ss.ver, ss.pptx = agent["result"], p, ss.get("ver", 0) + 1, None
                 except Exception as e:
                     st.error(e)
             if ss.get("plan"):

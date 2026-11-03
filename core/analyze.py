@@ -2,15 +2,16 @@
 import pandas as pd
 
 
-def analyze(df):
+def analyze(df, metric=None, category=None):
     if df is None or df.empty:
         raise ValueError("The data is empty.")
     df = df.copy()
     num = [c for c in df.columns if pd.to_numeric(df[c], errors="coerce").notna().mean() >= 0.8]
     cats = [c for c in df.columns if c not in num]
-    metric = num[0] if num else None
+    metric = metric if metric in df.columns else (num[0] if num else None)
     # prefer a category that actually groups rows (not a unique id column)
-    category = next((c for c in cats if df[c].nunique() < len(df)), cats[0] if cats else None)
+    if category not in df.columns:
+        category = next((c for c in cats if df[c].nunique() < len(df)), cats[0] if cats else None)
     if metric:
         df[metric] = pd.to_numeric(df[metric], errors="coerce").fillna(0)
     if category and metric:

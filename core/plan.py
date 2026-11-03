@@ -6,8 +6,51 @@ def fmt(n):
     return f"{n:,.0f}" if abs(n) >= 100 else f"{n:,.2f}"
 
 
-def make_plan(r, topic, org, cfg, ai=None):
-    """ai: optional {'background': [...], 'actions': [...]} from core.research."""
+def make_decision_plan(r, problem, org, cfg, agent):
+    """Decision deck: Title, Problem, Situation, Chart, Options, Recommendation, Next steps."""
+    on = cfg["slides"]
+    m, c = r["metric"], r["category"]
+    options = agent["options"]
+    best = agent["best"]
+    best_opt = options[best]
+    goal = agent.get("goal", "reduce")
+    situation = [
+        f"Problem: {problem}",
+        f"Goal: {goal} {m}",
+        f"{r['rows']} records analysed; total {m}: {fmt(r['total'])}",
+        f"Highest {c}: {r['top']} ({r['top_share']}% of total)",
+        f"Lowest {c}: {r['low']}",
+    ]
+    next_steps = [
+        f"Approve {best_opt['name']} and confirm budget.",
+        f"Assign {c} owners and a 30-day checkpoint.",
+        f"Track {m} weekly and report progress.",
+    ]
+    return [
+        {"id": "title", "type": "title", "title": problem,
+         "bullets": [org, date.today().strftime("%d %b %Y")], "on": True},
+        {"id": "problem", "type": "bullets", "title": "Problem",
+         "bullets": [problem, f"Goal: {goal} {m}", f"Compare {m} by {c}"],
+         "on": on.get("problem", True)},
+        {"id": "situation", "type": "bullets", "title": "Situation",
+         "bullets": situation, "on": on.get("situation", True)},
+        {"id": "chart", "type": "chart", "title": f"{m} by {c}", "bullets": [],
+         "on": on.get("chart", True)},
+        {"id": "options", "type": "options", "title": "Options compared", "bullets": [],
+         "options": options, "best": best, "on": on.get("options", True)},
+        {"id": "recommendation", "type": "bullets", "title": "Recommendation",
+         "bullets": [f"Recommended: {best_opt['name']}", agent["reason"],
+                     f"Expected effect: {best_opt.get('est_effect', 'n/a')}"],
+         "on": on.get("recommendation", True)},
+        {"id": "next_steps", "type": "bullets", "title": "Next steps",
+         "bullets": next_steps, "on": on.get("next_steps", True)},
+    ]
+
+
+def make_plan(r, topic, org, cfg, ai=None, agent=None):
+    """Build a slide plan. When agent is provided, build the decision deck."""
+    if agent is not None:
+        return make_decision_plan(r, topic, org, cfg, agent)
     on = cfg["slides"]
     m, c = r["metric"], r["category"]
     summary = [

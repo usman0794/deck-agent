@@ -89,6 +89,34 @@ def build_pptx(plan, df, r, cfg, template_bytes=None):
                     t.cell(i + 1, j).text = str(v)[:30]
             _style_title(sl, color)
 
+        elif s["type"] == "options":
+            sl = prs.slides.add_slide(_layout(prs, 5))
+            sl.shapes.title.text = s["title"]
+            opts = s.get("options", [])
+            best = s.get("best", -1)
+            cols = ["Option", "Est. effect", "Impact", "Cost", "Risk", "Speed", "Score"]
+            rows = len(opts) + 1
+            t = sl.shapes.add_table(rows, len(cols), *box[:3], Inches(0.4) * rows).table
+            for j, col in enumerate(cols):
+                cell = t.cell(0, j)
+                cell.text = col
+                for p in cell.text_frame.paragraphs:
+                    p.font.bold = True
+            for i, o in enumerate(opts):
+                vals = [str(o.get("name", "")), str(o.get("est_effect", "")),
+                        str(o.get("impact", "")), str(o.get("cost", "")),
+                        str(o.get("risk", "")), str(o.get("speed", "")),
+                        f"{o.get('score', 0):.2f}"]
+                for j, v in enumerate(vals):
+                    cell = t.cell(i + 1, j)
+                    cell.text = v
+                    if i == best:
+                        for p in cell.text_frame.paragraphs:
+                            p.font.bold = True
+                        cell.fill.solid()
+                        cell.fill.fore_color.rgb = RGBColor.from_string("D9EAD3")
+            _style_title(sl, color)
+
     out = io.BytesIO()
     prs.save(out)
     return out.getvalue()
