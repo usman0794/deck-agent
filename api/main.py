@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 from typing import Optional
 
-from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
@@ -65,6 +65,11 @@ class RatingsRequest(BaseModel):
     weights: Optional[dict] = None
 
 
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
 def _error(code, message, findings=None, status_code=400):
     return JSONResponse(status_code=status_code,
                         content={"code": code, "message": message, "findings": findings or []})
@@ -81,6 +86,17 @@ async def _value_error_handler(request, exc):
                   detail.get("findings"), status)
 
 
+@app.post("/auth/login")
+def login(req: LoginRequest):
+    ok, role = auth.authenticate(req.username, req.password)
+    if not ok:
+        raise HTTPException(status_code=401, detail={
+            "code": "INVALID_CREDENTIALS",
+            "message": "Invalid username or password", "findings": []})
+    return {"token": auth.make_token(req.username.strip().lower()),
+            "user": req.username.strip().lower(), "role": role}
+
+
 @app.post("/sessions")
 def create_session(_user=Depends(get_current_user)):
     return workflow.create_session()
@@ -89,6 +105,12 @@ def create_session(_user=Depends(get_current_user)):
 @app.post("/sessions/{session_id}/data")
 def upload_data(session_id: str, file: UploadFile = File(...), _user=Depends(get_current_user)):
     return workflow.upload_data(session_id, file.file.read(), file.filename)
+
+
+@app.post("/sessions/{session_id}/scrape")
+def scrape_data(session_id: str, url: str = Form(...), selector: str = Form("table tr"),
+                _user=Depends(get_current_user)):
+    return workflow.scrape_data(session_id, url, selector)
 
 
 @app.post("/sessions/{session_id}/problem")

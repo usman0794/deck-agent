@@ -18,3 +18,8 @@ session_data/
 
 # Research page cache
 cache/
+
+# Frontend
+web/node_modules/
+web/.next/
+web/.env.local

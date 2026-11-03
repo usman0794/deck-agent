@@ -68,6 +68,14 @@ def upload_data(session_id, file_bytes, filename):
     return session.to_dict()
 
 
+def scrape_data(session_id, url, selector="table tr"):
+    """Scrape a web table/list and store it as the session data."""
+    from core import scraper
+    df = scraper.scrape(url, selector)
+    csv_bytes = df.to_csv(index=False).encode("utf-8-sig")
+    return upload_data(session_id, csv_bytes, "scraped.csv")
+
+
 def submit_problem(session_id, text):
     session = _get(session_id)
     if not session.data_ref:

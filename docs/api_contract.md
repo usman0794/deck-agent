@@ -9,6 +9,26 @@ All requests and responses are JSON unless noted. Errors are returned as:
 {"code": "ERROR_CODE", "message": "Human readable message", "findings": []}
 ```
 
+## Authentication
+
+### POST /auth/login
+
+Exchange a username and password for a bearer token.
+
+```bash
+curl -X POST http://localhost:8000/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"admin123"}'
+```
+
+Response:
+
+```json
+{"token": "...", "user": "admin", "role": "admin"}
+```
+
+Send the token as `Authorization: Bearer <token>` on all other endpoints. Auth is pluggable: set `auth_required` in `config.json` to enforce it.
+
 ## Session states
 
 ```
@@ -84,6 +104,16 @@ Upload a CSV/Excel/JSON file (multipart form field `file`).
 ```bash
 curl -X POST http://localhost:8000/sessions/<id>/data \
   -F "file=@workers_sample_data.csv"
+```
+
+### POST /sessions/{id}/scrape
+
+Scrape a web table/list and store it as the session data (multipart form fields `url` and `selector`).
+
+```bash
+curl -X POST http://localhost:8000/sessions/<id>/scrape \
+  -F "url=https://www.w3schools.com/html/html_tables.asp" \
+  -F "selector=table tr"
 ```
 
 ### POST /sessions/{id}/problem

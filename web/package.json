@@ -1,0 +1,33 @@
+{
+  "name": "briefing-deck-web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "next": "16.4.4",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "tailwind-merge": "^3.7.0",
+    "lucide-react": "^1.67.0",
+    "@radix-ui/react-slot": "^1.5.0",
+    "@radix-ui/react-label": "^2.1.17",
+    "@radix-ui/react-tabs": "^1.2.1",
+    "@radix-ui/react-progress": "^1.2.1",
+    "@radix-ui/react-slider": "^1.6.1"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "tailwindcss": "^4.3.4",
+    "@tailwindcss/postcss": "^4.3.4"
+  }
+}
