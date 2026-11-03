@@ -1,4 +1,24 @@
 """Briefing Deck Agent (Streamlit). Run: streamlit run app.py"""
+import asyncio
+import sys
+
+# Windows: silence harmless "connection reset" noise when a browser disconnects.
+if sys.platform == "win32":
+    try:
+        from asyncio.proactor_events import _ProactorBasePipeTransport
+
+        _original_connection_lost = _ProactorBasePipeTransport._call_connection_lost
+
+        def _quiet_connection_lost(self, exc):
+            try:
+                _original_connection_lost(self, exc)
+            except ConnectionResetError:
+                pass
+
+        _ProactorBasePipeTransport._call_connection_lost = _quiet_connection_lost
+    except Exception:
+        pass
+
 import io
 import json
 import zipfile
