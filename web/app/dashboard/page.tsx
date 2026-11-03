@@ -283,9 +283,9 @@ export default function DashboardPage() {
                 <div className="space-y-2">
                   <div className="flex items-center gap-2 text-sm">
                     <Badge>{research.status}</Badge>
-                    <span>Coverage {Math.round(research.coverage * 100)}%</span>
-                    <span>{research.findings.length} findings</span>
-                    <span>{research.sources.length} sources</span>
+                    <span>Coverage {Math.round((research.coverage || 0) * 100)}%</span>
+                    <span>{research.findings?.length ?? 0} findings</span>
+                    <span>{research.sources?.length ?? 0} sources</span>
                   </div>
                   <Progress value={Math.round(research.coverage * 100)} />
                   {research.message && <p className="text-sm text-amber-600">{research.message}</p>}
