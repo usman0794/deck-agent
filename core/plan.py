@@ -18,16 +18,18 @@ def make_agent_plan(agent, org, cfg):
     best = agent["best"]
     best_opt = options[best]
     conf = agent["check"]["confidence"]
-    metric = ui["metric"]
-    group = ui["group"]
-    problem = ui["problem"]
-    goal = ui["goal"]
+    result = agent["result"]
+    metric = result.get("metric") or ui.get("metric") or "metric"
+    group = result.get("category") or ui.get("group") or "group"
+    problem = ui.get("problem") or "Decision"
+    goal = ui.get("goal") or "reduce"
+    problem_type = agent.get("problem_type", {}).get("type", "improve")
     constraints = ", ".join(f"{k}: {v}" for k, v in (ui.get("constraints") or {}).items() if v) or "none"
     slides = [
         {"id": "title", "type": "title", "title": problem,
          "bullets": [org, date.today().strftime("%d %b %Y")], "on": True},
         {"id": "problem", "type": "bullets", "title": "The problem",
-         "bullets": [problem, f"Goal: {goal} {metric}", f"Group: {group}",
+         "bullets": [problem, f"Type: {problem_type}", f"Goal: {goal} {metric}", f"Group: {group}",
                      f"Audience: {ui.get('audience', 'leadership')}", f"Constraints: {constraints}"],
          "on": on.get("problem", True)},
         {"id": "data", "type": "bullets", "title": "What the data shows",

@@ -1,5 +1,5 @@
 """Decision agent: generate three options, score them, and recommend one."""
-from core import analyze, check, research, understand
+from core import analyze, archetypes, check, guardrails, problem, research, understand
 
 # Weighted score. Cost and risk are lower-is-better, so they are inverted.
 WEIGHTS = {"impact": 0.4, "cost": 0.25, "risk": 0.2, "speed": 0.15}
@@ -93,53 +93,88 @@ def make_reason(scored, best):
     return f"{winner['name']} leads {runner['name']} on {', '.join(criteria)}."
 
 
-def run_agent(df, user_text, cfg, use_ai, overrides=None):
-    """Run stages 1-4 and return one dict with the full pipeline result."""
+def run_agent(df, user_text, cfg, use_ai, overrides=None, asked=None):
+    """Run stages 1-4. Returns status, questions (when needed) and the full result."""
     overrides = overrides or {}
+    asked = set(asked or [])
+    findings = guardrails.validate_input(df, user_text)
     profile = understand.profile_data(df)
     data_summary = understand.interpret_data(df, profile, cfg, use_ai)
-    user_intent = understand.understand_user(user_text, list(df.columns), cfg, use_ai)
+    problem_type = problem.classify_problem(user_text, cfg, use_ai)
+    intent = understand.understand_user(user_text, list(df.columns), cfg, use_ai, df=df)
     for key in ("problem", "goal", "metric", "group", "constraints", "audience"):
         if overrides.get(key) not in (None, ""):
-            user_intent[key] = overrides[key]
-    if not user_intent.get("metric"):
-        user_intent["metric"] = data_summary.get("suggested_metric")
-    if not user_intent.get("group"):
-        user_intent["group"] = data_summary.get("suggested_group")
-    if not user_intent.get("goal"):
-        user_intent["goal"] = "reduce"
-    if not user_intent.get("problem"):
-        user_intent["problem"] = (user_text or "Decision").strip()
-    result = analyze.analyze(df, user_intent["metric"], user_intent["group"])
+            intent[key] = overrides[key]
+    if not intent.get("metric"):
+        intent["metric"] = data_summary.get("suggested_metric")
+    if not intent.get("group"):
+        intent["group"] = data_summary.get("suggested_group")
+    if not intent.get("problem"):
+        intent["problem"] = (user_text or "Decision").strip()
+
+    questions = []
+    if not intent.get("problem"):
+        questions.append({"id": "problem", "field": "problem",
+                          "text": "What problem are you trying to solve?",
+                          "kind": "text", "options": None, "required": True})
+    if not intent.get("goal"):
+        questions.append({"id": "goal", "field": "goal",
+                          "text": "Do you want to increase or reduce it?",
+                          "kind": "choice", "options": ["increase", "reduce"], "required": True})
+    if not intent.get("metric"):
+        numeric = list(profile.get("numeric", {}).keys())
+        if numeric:
+            questions.append({"id": "metric", "field": "metric",
+                              "text": "Which column is the metric?",
+                              "kind": "choice", "options": numeric, "required": True})
+    questions = [q for q in questions if q["id"] not in asked]
+    if questions:
+        return {
+            "status": "needs_input",
+            "questions": questions[:3],
+            "profile": profile,
+            "data_summary": data_summary,
+            "user_intent": intent,
+            "problem_type": problem_type,
+            "findings": findings,
+            "mode": "rules",
+        }
+
+    direction = intent.get("goal") or "reduce"
+    analysis = analyze.analyze(df, intent["metric"], intent["group"])
     options = None
     mode = "rules"
     if use_ai and research.available(cfg):
         try:
             options = research.ai_options(
-                user_intent["problem"], user_intent["goal"],
-                result["metric"], result["category"], cfg,
-                constraints=user_intent.get("constraints"))
+                intent["problem"], direction, analysis["metric"], analysis["category"], cfg,
+                constraints=intent.get("constraints"))
             mode = "ai"
         except Exception:
             options = None
     if not options:
-        options = rule_options(result, user_intent["problem"], user_intent["goal"],
-                               result["metric"], result["category"])
+        options = archetypes.build_options(problem_type["type"], analysis,
+                                           intent["problem"], direction, analysis["category"])
     clamp_options(options)
+    findings += guardrails.validate_options(options)
     scored = score_options(options)
     best = pick_best(scored)
+    findings += guardrails.validate_decision(scored, best)
     reason = make_reason(scored, best)
     sens = check.sensitivity(scored)
-    crit = check.critique(user_intent["problem"], result, scored, best, cfg, use_ai)
+    crit = check.critique(intent["problem"], analysis, scored, best, cfg, use_ai)
     conf = check.confidence(sens, scored, best)
     return {
+        "status": "ok",
         "profile": profile,
         "data_summary": data_summary,
-        "user_intent": user_intent,
-        "result": result,
+        "user_intent": intent,
+        "problem_type": problem_type,
+        "result": analysis,
         "options": scored,
         "best": best,
         "reason": reason,
         "check": {"sensitivity": sens, "critique": crit, "confidence": conf},
+        "findings": findings,
         "mode": mode,
     }

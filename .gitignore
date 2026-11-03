@@ -11,3 +11,7 @@ venv/
 # Generated output
 *.pptx
 build_briefing.py
+
+# Sessions and uploaded data (file store)
+sessions/
+session_data/
