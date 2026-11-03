@@ -117,6 +117,23 @@ def build_pptx(plan, df, r, cfg, template_bytes=None):
                         cell.fill.fore_color.rgb = RGBColor.from_string("D9EAD3")
             _style_title(sl, color)
 
+        elif s["type"] == "scenarios":
+            sl = prs.slides.add_slide(_layout(prs, 5))
+            sl.shapes.title.text = s["title"]
+            rows = s.get("scenarios", [])
+            cols = ["Scenario", "Winner", "Score"]
+            t = sl.shapes.add_table(len(rows) + 1, len(cols), *box[:3], Inches(0.4) * (len(rows) + 1)).table
+            for j, col in enumerate(cols):
+                cell = t.cell(0, j)
+                cell.text = col
+                for p in cell.text_frame.paragraphs:
+                    p.font.bold = True
+            for i, row in enumerate(rows):
+                vals = [str(row.get("name", "")), str(row.get("winner", "")), f"{row.get('score', 0):.2f}"]
+                for j, v in enumerate(vals):
+                    t.cell(i + 1, j).text = v
+            _style_title(sl, color)
+
     out = io.BytesIO()
     prs.save(out)
     return out.getvalue()

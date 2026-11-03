@@ -89,7 +89,7 @@ def research(topic, summary_lines, cfg=None):
     return {"background": clean(data.get("background", []))[:3], "actions": clean(data.get("actions", []))[:4]}
 
 
-def ai_options(problem, goal, metric, category, cfg=None):
+def ai_options(problem, goal, metric, category, cfg=None, constraints=None):
     """Ask the AI for exactly 3 options as JSON. Retries once on invalid output.
 
     Uses the same provider/key/model settings as research(); key handling is unchanged.
@@ -115,8 +115,14 @@ def ai_options(problem, goal, metric, category, cfg=None):
 
     client = OpenAI(api_key=key, base_url=provider["base_url"])
     prompt = (
-        f"Problem: {problem}\nGoal: {goal} {metric}\nGroup column: {category}\n\n"
-        "Propose exactly 3 different, realistic options to solve the problem. "
+        f"Problem: {problem}\nGoal: {goal} {metric}\nGroup column: {category}\n"
+    )
+    if constraints:
+        constraint_text = ", ".join(f"{k}: {v}" for k, v in constraints.items() if v)
+        if constraint_text:
+            prompt += f"Constraints: {constraint_text}\n"
+    prompt += (
+        "\nPropose exactly 3 different, realistic options to solve the problem. "
         "Return ONLY a JSON array of 3 objects with keys: name, summary, est_effect, "
         "impact, cost, risk, speed. impact/cost/risk/speed are integers 1-5 "
         "(5 = highest impact, highest cost, highest risk, fastest)."
@@ -154,4 +160,39 @@ def ai_options(problem, goal, metric, category, cfg=None):
         except Exception as e:
             last_err = e
     raise RuntimeError(f"AI did not return 3 valid options after retry: {last_err}")
+
+
+def complete_json(prompt, cfg=None, max_tokens=None):
+    """Call the AI and return parsed JSON. Uses the existing provider/key/model settings."""
+    name, provider = _provider()
+    if not provider:
+        raise RuntimeError(
+            "Set AI_PROVIDER in the .env file (groq or longcat) to use the AI step."
+        )
+    key = api_key(cfg)
+    if not key:
+        raise RuntimeError(
+            f"Set {provider['key_env']} in the .env file to use the AI step "
+            f"(AI_PROVIDER={name})."
+        )
+    model = model_name()
+    if not model:
+        raise RuntimeError(
+            f"Set {provider['key_env'].removesuffix('_API_KEY')}_MODEL in the .env file "
+            f"for provider '{name}'."
+        )
+    from openai import OpenAI
+
+    client = OpenAI(api_key=key, base_url=provider["base_url"])
+    resp = client.chat.completions.create(
+        model=model,
+        max_tokens=max_tokens or int(os.getenv("AI_MAX_TOKENS", "2000")),
+        temperature=0.2,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    text = resp.choices[0].message.content or ""
+    match = re.search(r"\{.*\}", text, re.S)
+    if not match:
+        raise RuntimeError(f"{name} did not return JSON: {text[:200]}")
+    return json.loads(match.group(0))
 

@@ -1,7 +1,7 @@
 {
   "organisation": "Your Organisation",
   "theme": { "primary": "01411C" },
-  "slides": { "problem": true, "situation": true, "chart": true, "options": true, "recommendation": true, "next_steps": true, "summary": true, "key_figures": true, "table": false, "actions": true },
+  "slides": { "problem": true, "data": true, "chart": true, "solutions": true, "criteria": true, "scores": true, "robustness": true, "recommendation": true, "risks": true, "next_steps": true, "key_figures": false, "table": false, "situation": true, "options": true, "summary": true, "actions": true },
   "max_chart_items": 6,
   "table_rows": 8,
   "table_cols": 6

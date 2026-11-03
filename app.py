@@ -26,7 +26,7 @@ from pathlib import Path
 
 import streamlit as st
 
-from core import analyze as an, auth, build, data, decide as dc, plan as pl, research, scraper
+from core import analyze as an, auth, build, data, decide as dc, plan as pl, research, scraper, understand
 
 ROOT = Path(__file__).parent
 CFG = json.loads((ROOT / "config.json").read_text())
@@ -114,11 +114,6 @@ SCRAPE_PRESETS = {
 }
 
 TABS = ["1. Data", "2. Slide plan", "3. Download"]
-
-
-def _save_tab():
-    st.query_params["tab"] = ss.get("active_tab", TABS[0])
-    st.rerun()
 
 
 def go_tab(name):
@@ -256,8 +251,11 @@ st.title("Briefing Deck Agent")
 _current = st.query_params.get("tab", TABS[0])
 if _current not in TABS:
     _current = TABS[0]
-st.pills("Section", TABS, selection_mode="single", default=_current,
-         key="active_tab", on_change=_save_tab, label_visibility="collapsed")
+_selected = st.pills("Section", TABS, selection_mode="single", default=_current,
+                     key="active_tab", label_visibility="collapsed")
+if _selected != _current:
+    st.query_params["tab"] = _selected
+    st.rerun()
 
 # ---- 1. Data
 if _current == TABS[0]:
@@ -304,13 +302,7 @@ if _current == TABS[1]:
         if ss.get("df") is None:
             st.info("Load data first.")
         else:
-            problem = st.text_input("Problem to solve",
-                                    placeholder="e.g. Reduce overtime cost")
             org = st.text_input("Organisation", placeholder="e.g. Your Organisation")
-            goal = st.selectbox("Goal", ["reduce", "increase"], index=0)
-            metric = st.text_input("Metric column", placeholder="e.g. overtime_hours")
-            category = st.text_input("Group column", placeholder="e.g. department")
-            problem = problem.strip() or "Decision"
             org = org.strip() or CFG["organisation"]
             tpl = st.file_uploader("Optional base template (.pptx with your logo and fonts)", type=["pptx"])
             ss.template = tpl.getvalue() if tpl else None
@@ -318,18 +310,60 @@ if _current == TABS[1]:
             use_ai = st.checkbox("Add AI-drafted options (draft only, verify)",
                                  disabled=(not research.available(CFG)) or not is_admin,
                                  help="Needs an AI key in .env and an admin account.")
-            if st.button("Draft slide plan", type="primary"):
+            user_text = st.text_area("Describe the situation",
+                                     placeholder="e.g. we pay too much overtime and HR needs a plan next month",
+                                     height=90)
+            if st.button("Understand"):
                 try:
-                    detected = an.analyze(ss.df)
-                    agent = dc.run_agent(ss.df, problem, goal,
-                                         metric.strip() or detected["metric"],
-                                         category.strip() or detected["category"],
-                                         CFG, use_ai)
-                    p = pl.make_plan(agent["result"], problem, org, CFG, agent=agent)
-                    ss.result, ss.plan, ss.ver, ss.pptx = agent["result"], p, ss.get("ver", 0) + 1, None
+                    profile = understand.profile_data(ss.df)
+                    data_summary = understand.interpret_data(ss.df, profile, CFG, use_ai)
+                    user_intent = understand.understand_user(user_text, list(ss.df.columns), CFG, use_ai)
+                    if not user_intent.get("metric"):
+                        user_intent["metric"] = data_summary.get("suggested_metric")
+                    if not user_intent.get("group"):
+                        user_intent["group"] = data_summary.get("suggested_group")
+                    if not user_intent.get("goal"):
+                        user_intent["goal"] = "reduce"
+                    if not user_intent.get("problem"):
+                        user_intent["problem"] = user_text.strip() or "Decision"
+                    ss.understood = {"data_summary": data_summary, "user_intent": user_intent}
+                    st.rerun()
                 except Exception as e:
                     st.error(e)
+
+            if ss.get("understood"):
+                st.subheader("Here is what I understood")
+                ui = ss.understood["user_intent"]
+                ds = ss.understood["data_summary"]
+                ui["problem"] = st.text_input("Problem", ui.get("problem", ""), key="understood_problem")
+                ui["goal"] = st.selectbox("Goal", ["reduce", "increase"],
+                                          index=0 if ui.get("goal") == "reduce" else 1,
+                                          key="understood_goal")
+                ui["metric"] = st.text_input("Metric column", ui.get("metric") or "", key="understood_metric")
+                ui["group"] = st.text_input("Group column", ui.get("group") or "", key="understood_group")
+                ui["audience"] = st.text_input("Audience", ui.get("audience") or "leadership",
+                                               key="understood_audience")
+                constraints = ui.get("constraints") or {}
+                budget = st.text_input("Budget constraint", constraints.get("budget") or "",
+                                       key="understood_budget")
+                time_limit = st.text_input("Time constraint", constraints.get("time") or "",
+                                           key="understood_time")
+                ui["constraints"] = {"budget": budget or None, "time": time_limit or None}
+                st.caption(f"Data: {ds.get('about', '')}")
+                if st.button("Confirm and draft plan", type="primary"):
+                    try:
+                        agent = dc.run_agent(ss.df, user_text, CFG, use_ai, overrides=ui)
+                        p = pl.make_plan(agent["result"], ui["problem"], org, CFG, agent=agent)
+                        ss.result, ss.plan, ss.ver, ss.pptx = agent["result"], p, ss.get("ver", 0) + 1, None
+                        ss.agent = agent
+                    except Exception as e:
+                        st.error(e)
+
             if ss.get("plan"):
+                agent = ss.get("agent") or {}
+                conf = (agent.get("check") or {}).get("confidence")
+                if conf:
+                    st.caption(f"Confidence: {conf.get('label')} — winner in {conf.get('wins')} of {conf.get('total')} scenarios")
                 st.caption("Edit titles and bullets (one per line), switch slides off, or reorder.")
                 for i, s in enumerate(ss.plan):
                     k = f"{s['id']}_{ss.ver}"
@@ -344,8 +378,7 @@ if _current == TABS[1]:
                         c1.button("Up", key=f"u_{k}", on_click=move, args=(i, -1))
                         c2.button("Down", key=f"d_{k}", on_click=move, args=(i, 1))
 
-                if ss.get("plan"):
-                    st.button("Next: Download →", type="primary", on_click=go_tab, args=(TABS[2],))
+                st.button("Next: Download →", type="primary", on_click=go_tab, args=(TABS[2],))
 
     # ---- 3. Download
 if _current == TABS[2]:
