@@ -1,0 +1,8 @@
+route,buses_needed,district
+Route A,120,North
+Route B,200,South
+Route C,50,East
+Route D,310,West
+Route E,90,North
+Route A,80,South
+Route F,140,East

@@ -1,0 +1,8 @@
+{
+  "organisation": "Your Organisation",
+  "theme": { "primary": "01411C" },
+  "slides": { "summary": true, "key_figures": true, "chart": true, "table": false, "actions": true },
+  "max_chart_items": 6,
+  "table_rows": 8,
+  "table_cols": 6
+}

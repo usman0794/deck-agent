@@ -1,0 +1,13 @@
+# Secrets (never commit)
+.env
+access.json
+.auth_secret
+
+# Python
+__pycache__/
+*.py[cod]
+venv/
+
+# Generated output
+*.pptx
+build_briefing.py

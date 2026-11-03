@@ -1,0 +1,6 @@
+{
+  "users": {
+    "admin": { "password": "change-me", "role": "admin" },
+    "viewer": { "password": "change-me", "role": "viewer" }
+  }
+}
