@@ -260,8 +260,14 @@ def update_ratings(session_id, option_ratings, weights=None):
     sens = check.sensitivity(scored)
     conf = check.confidence(sens, scored, session.best)
     session.confidence = conf
-    session.check = {"sensitivity": sens, "critique": session.check.get("critique", {}),
-                     "confidence": conf}
+    session.check = {
+        **session.check,
+        "sensitivity": sens,
+        "confidence": conf,
+        "why_not": check.why_not_others(scored, session.best),
+        "tie": check.is_tie(scored),
+        "evidence_strength": session.check.get("evidence_strength", 0),
+    }
     session.status = "options_ready"
     session.updated_at = _now()
     STORE.save(session)
@@ -281,6 +287,9 @@ def get_decision(session_id):
         "best": session.best,
         "reason": session.reason,
         "confidence": session.confidence,
+        "why_not": session.check.get("why_not", {}),
+        "tie": session.check.get("tie", False),
+        "evidence_strength": session.check.get("evidence_strength", 0),
         "findings": session.findings,
     }
     session.status = "decided"

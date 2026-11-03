@@ -1,3 +1,5 @@
+import type { Decision, Finding, Option, Question, ResearchResult, Source, UserIntent } from "./types";
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export class ApiError extends Error {
@@ -36,40 +38,59 @@ async function request<T = unknown>(path: string, options: RequestInit = {}): Pr
   return data as T;
 }
 
+interface SessionResponse { id: string; status: string }
+interface DataResponse { status: string }
+interface ProblemResponse { status: string; questions?: Question[]; user_intent?: UserIntent }
+interface OptionsResponse { status: string; options: Option[] }
+interface SourcesResponse { status: string; sources: Source[] }
+interface AuditResponse { status: string; findings: unknown[] }
+
 export const api = {
   login: (username: string, password: string) =>
     request<{ token: string; user: string; role: string }>("/auth/login", {
       method: "POST",
       body: JSON.stringify({ username, password }),
     }),
-  createSession: () => request("/sessions", { method: "POST" }),
+  createSession: () => request<SessionResponse>("/sessions", { method: "POST" }),
   uploadData: (sessionId: string, file: File) => {
     const form = new FormData();
     form.append("file", file);
-    return request(`/sessions/${sessionId}/data`, { method: "POST", body: form });
+    return request<DataResponse>(`/sessions/${sessionId}/data`, { method: "POST", body: form });
   },
   scrape: (sessionId: string, url: string, selector: string) => {
     const form = new FormData();
     form.append("url", url);
     form.append("selector", selector);
-    return request(`/sessions/${sessionId}/scrape`, { method: "POST", body: form });
+    return request<DataResponse>(`/sessions/${sessionId}/scrape`, { method: "POST", body: form });
   },
   submitProblem: (sessionId: string, text: string) =>
-    request(`/sessions/${sessionId}/problem`, { method: "POST", body: JSON.stringify({ text }) }),
+    request<ProblemResponse>(`/sessions/${sessionId}/problem`, {
+      method: "POST",
+      body: JSON.stringify({ text }),
+    }),
   answerQuestions: (sessionId: string, answers: Record<string, string>) =>
-    request(`/sessions/${sessionId}/answers`, { method: "POST", body: JSON.stringify({ answers }) }),
+    request<ProblemResponse>(`/sessions/${sessionId}/answers`, {
+      method: "POST",
+      body: JSON.stringify({ answers }),
+    }),
   confirm: (sessionId: string, edits: Record<string, string>) =>
-    request(`/sessions/${sessionId}/confirm`, { method: "POST", body: JSON.stringify({ edits }) }),
-  runResearch: (sessionId: string) => request(`/sessions/${sessionId}/research`, { method: "POST" }),
+    request<ProblemResponse>(`/sessions/${sessionId}/confirm`, {
+      method: "POST",
+      body: JSON.stringify({ edits }),
+    }),
+  runResearch: (sessionId: string) => request<ResearchResult>(`/sessions/${sessionId}/research`, { method: "POST" }),
   generateOptions: (sessionId: string, useAi: boolean) =>
-    request(`/sessions/${sessionId}/options`, { method: "POST", body: JSON.stringify({ use_ai: useAi }) }),
+    request<OptionsResponse>(`/sessions/${sessionId}/options`, {
+      method: "POST",
+      body: JSON.stringify({ use_ai: useAi }),
+    }),
   updateRatings: (sessionId: string, optionRatings: Record<string, Record<string, number>>, weights?: Record<string, number>) =>
-    request(`/sessions/${sessionId}/ratings`, {
+    request<OptionsResponse>(`/sessions/${sessionId}/ratings`, {
       method: "PATCH",
       body: JSON.stringify({ option_ratings: optionRatings, weights }),
     }),
-  getDecision: (sessionId: string) => request(`/sessions/${sessionId}/decision`),
-  getSources: (sessionId: string) => request(`/sessions/${sessionId}/sources`),
-  getAudit: (sessionId: string) => request(`/sessions/${sessionId}/audit`),
+  getDecision: (sessionId: string) => request<Decision>(`/sessions/${sessionId}/decision`),
+  getSources: (sessionId: string) => request<SourcesResponse>(`/sessions/${sessionId}/sources`),
+  getAudit: (sessionId: string) => request<AuditResponse>(`/sessions/${sessionId}/audit`),
   getDeckUrl: (sessionId: string) => `${API_URL}/sessions/${sessionId}/deck.pptx`,
 };

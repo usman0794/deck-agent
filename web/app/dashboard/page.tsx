@@ -93,8 +93,7 @@ export default function DashboardPage() {
         setQuestions(res.questions || []);
         return;
       }
-      setIntent(res.user_intent);
-      setStep("research");
+      setIntent(res.user_intent ?? null);
     });
   }
 
@@ -105,8 +104,7 @@ export default function DashboardPage() {
         setQuestions(res.questions || []);
         return;
       }
-      setIntent(res.user_intent);
-      setStep("research");
+      setIntent(res.user_intent ?? null);
     });
   }
 
@@ -118,7 +116,7 @@ export default function DashboardPage() {
         metric: intent?.metric || "",
         group: intent?.group || "",
       });
-      setIntent(res.user_intent);
+      setIntent(res.user_intent ?? null);
       setStep("research");
     });
   }
@@ -361,7 +359,7 @@ export default function DashboardPage() {
               <CardHeader><CardTitle>Why not the others</CardTitle></CardHeader>
               <CardContent>
                 <ul className="space-y-2 text-sm">
-                  {Object.entries(decision.why_not).map(([i, text]) => (
+                  {Object.entries(decision.why_not || {}).map(([i, text]) => (
                     <li key={i}>{text}</li>
                   ))}
                 </ul>
