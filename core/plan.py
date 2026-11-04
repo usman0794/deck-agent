@@ -1,57 +1,160 @@
 """Turn an analysis into an editable slide plan (list of dicts)."""
+import urllib.parse
 from datetime import date
+
+from core.decide import WEIGHTS
 
 
 def fmt(n):
     return f"{n:,.0f}" if abs(n) >= 100 else f"{n:,.2f}"
 
 
-def make_decision_plan(r, problem, org, cfg, agent):
-    """Decision deck: Title, Problem, Situation, Chart, Options, Recommendation, Next steps."""
-    on = cfg["slides"]
-    m, c = r["metric"], r["category"]
-    options = agent["options"]
-    best = agent["best"]
-    best_opt = options[best]
-    goal = agent.get("goal", "reduce")
-    situation = [
-        f"Problem: {problem}",
-        f"Goal: {goal} {m}",
-        f"{r['rows']} records analysed; total {m}: {fmt(r['total'])}",
-        f"Highest {c}: {r['top']} ({r['top_share']}% of total)",
-        f"Lowest {c}: {r['low']}",
-    ]
-    next_steps = [
-        f"Approve {best_opt['name']} and confirm budget.",
-        f"Assign {c} owners and a 30-day checkpoint.",
-        f"Track {m} weekly and report progress.",
-    ]
-    return [
-        {"id": "title", "type": "title", "title": problem,
-         "bullets": [org, date.today().strftime("%d %b %Y")], "on": True},
-        {"id": "problem", "type": "bullets", "title": "Problem",
-         "bullets": [problem, f"Goal: {goal} {m}", f"Compare {m} by {c}"],
-         "on": on.get("problem", True)},
-        {"id": "situation", "type": "bullets", "title": "Situation",
-         "bullets": situation, "on": on.get("situation", True)},
-        {"id": "chart", "type": "chart", "title": f"{m} by {c}", "bullets": [],
-         "on": on.get("chart", True)},
-        {"id": "options", "type": "options", "title": "Options compared", "bullets": [],
-         "options": options, "best": best, "on": on.get("options", True)},
-        {"id": "recommendation", "type": "bullets", "title": "Recommendation",
-         "bullets": [f"Recommended: {best_opt['name']}", agent["reason"],
-                     f"Expected effect: {best_opt.get('est_effect', 'n/a')}"],
-         "on": on.get("recommendation", True)},
-        {"id": "next_steps", "type": "bullets", "title": "Next steps",
-         "bullets": next_steps, "on": on.get("next_steps", True)},
-    ]
+def _clip(bullets, limit=6, chars=140):
+    return [str(b)[:chars] for b in (bullets or [])[:limit]]
+
+
+def make_agent_plan(agent, org, cfg):
+    """Detailed decision deck: up to 18 slides, one message each."""
+    on = cfg.get("slides", {})
+    ui = agent.get("user_intent", {})
+    ds = agent.get("data_summary", {})
+    result = agent.get("result", {})
+    options = agent.get("options", [])
+    best = agent.get("best", 0)
+    best_opt = options[best] if options else {}
+    check = agent.get("check", {})
+    conf = check.get("confidence", {})
+    why_not = check.get("why_not", {})
+    tie = check.get("tie", False)
+    evidence_strength = check.get("evidence_strength", 0)
+    metric = result.get("metric") or ui.get("metric") or "metric"
+    group = result.get("category") or ui.get("group") or "group"
+    problem = ui.get("problem") or "Decision"
+    goal = ui.get("goal") or "reduce"
+    problem_type = agent.get("problem_type", {}).get("type", "improve")
+    research = agent.get("research") or {}
+    findings = research.get("findings", [])
+    sources = research.get("sources", [])
+    themes = research.get("themes", {})
+    coverage = min(1.0, research.get("coverage", 0.0))
+    status = research.get("status", "ok")
+    has_research = bool(findings)
+    findings_map = {f["id"]: f for f in findings}
+    mode_label = "AI-assisted" if agent.get("mode") == "ai" else "Rule-based"
+    constraints = ", ".join(f"{k}: {v}" for k, v in (ui.get("constraints") or {}).items() if v) or "none"
+
+    slides = []
+
+    def add(sid, stype, title, bullets=None, **extra):
+        slide = {"id": sid, "type": stype, "title": title,
+                 "bullets": _clip(bullets), "on": on.get(sid, True)}
+        slide.update(extra)
+        slides.append(slide)
+        return slide
+
+    add("title", "title", problem,
+        [org, date.today().strftime("%d %b %Y"), f"Mode: {mode_label}"])
+    add("executive_summary", "bullets", "Executive summary",
+        [f"Problem: {problem}", f"Recommended: {best_opt.get('name', '')}",
+         f"Expected effect: {best_opt.get('expected_effect', 'n/a')}",
+         f"Confidence: {conf.get('label', 'n/a')} (winner in {conf.get('wins', 0)} of {conf.get('total', 0)} scenarios)"],
+        notes=f"Reason: {agent.get('reason', '')} Evidence strength: {evidence_strength}.")
+    add("problem", "bullets", "The problem as understood",
+        [problem, f"Type: {problem_type}", f"Goal: {goal} {metric}", f"Group: {group}",
+         f"Constraints: {constraints}", "Assumptions: estimates are directional, not exact."])
+    add("data", "bullets", "What the data shows",
+        [ds.get("about", ""),
+         f"Rows: {result.get('rows', 0)}",
+         f"Total {metric}: {fmt(result.get('total', 0))}",
+         f"Top {group}: {result.get('top', '')}",
+         f"Lowest {group}: {result.get('low', '')}",
+         f"Quality: {', '.join(ds.get('quality_notes', [])) or 'no major issues'}",
+         f"Trend: {result.get('trend') or 'no date column'}"])
+    add("chart", "chart", f"{metric} by {group}")
+
+    if has_research:
+        source_map = research.get("finding_source_map", {})
+        theme_lines = []
+        for theme, ids in themes.items():
+            if not ids:
+                continue
+            claim = findings_map.get(ids[0], {}).get("claim", "")
+            number = source_map.get(ids[0], "?")
+            label = theme.replace("_", " ").title()
+            theme_lines.append(f"{label}: {claim} [{number}]" if claim else f"{label}: {len(ids)} finding(s)")
+        add("research", "bullets", "What outside research found",
+            theme_lines + [f"Coverage: {coverage:.0%} of sub-questions"],
+            notes="Verified findings only; untrusted page text was not used.")
+        practice = []
+        for fid in (themes.get("good_practices", []) + themes.get("benchmarks", [])):
+            claim = findings_map.get(fid, {}).get("claim", "")
+            practice.append(f"[{source_map.get(fid, '?')}] {claim}")
+            if len(practice) >= 6:
+                break
+        add("good_practices", "bullets", "Good practices and benchmarks found", practice,
+            notes="Every claim carries its source number.")
+    else:
+        add("research", "bullets", "No external research used",
+            ["Research was unavailable, partial, or disabled.",
+             f"Status: {status}. The options below are based on the data only."])
+
+    for i, o in enumerate(options):
+        evidence = ", ".join(f"[{e}]" for e in o.get("evidence_ids", [])) or "none"
+        add(f"solution_{i + 1}", "bullets", f"Solution {i + 1}: {o.get('name', '')}",
+            [o.get("idea", ""),
+             "How: " + " / ".join(o.get("how_it_works", [])),
+             f"Evidence: {evidence}",
+             f"Expected effect: {o.get('expected_effect', 'n/a')}",
+             f"Ratings: impact {o.get('impact')}, cost {o.get('cost')}, risk {o.get('risk')}, speed {o.get('speed')}",
+             f"Main risk: {o.get('main_risk', '')}"],
+            notes=f"Failure condition: {o.get('failure_condition', '')}")
+
+    add("comparison", "options", "Three solutions compared", options=options, best=best)
+    add("criteria", "bullets", "How we judged",
+        [f"Weights: impact {WEIGHTS['impact']}, cost {WEIGHTS['cost']}, "
+         f"risk {WEIGHTS['risk']}, speed {WEIGHTS['speed']}",
+         "Cost and risk are lower-is-better."])
+    add("robustness", "scenarios", "Robustness",
+        scenarios=check.get("sensitivity", {}).get("scenarios", []),
+        notes=f"Confidence: {conf.get('label')} (winner in {conf.get('wins', 0)} of {conf.get('total', 0)} scenarios). "
+              f"Evidence strength: {evidence_strength}.")
+    rec_bullets = [f"Recommended: {best_opt.get('name', '')}", agent.get("reason", ""),
+                   f"Confidence: {conf.get('label', 'n/a')} (winner in {conf.get('wins', 0)} of {conf.get('total', 0)} scenarios)",
+                   f"Evidence strength: {evidence_strength} verified finding(s)"]
+    if tie:
+        rec_bullets.append("Human decision required: the top two options are tied.")
+    rec_bullets += list(why_not.values())
+    add("recommendation", "bullets", "Recommendation and why", rec_bullets,
+        footer="Decision support. Estimates are assumptions. A person makes the final decision.",
+        notes="Why not the others: " + " ".join(why_not.values()))
+    steps = best_opt.get("how_it_works", [])
+    add("roadmap", "bullets", "Implementation roadmap",
+        [f"First 30 days: {steps[0] if steps else 'Start'}",
+         f"60 days: {steps[1] if len(steps) > 1 else 'Continue'}",
+         f"90 days: {steps[2] if len(steps) > 2 else 'Scale and review'}"])
+    risks = [best_opt.get("main_risk", ""), best_opt.get("failure_condition", "")]
+    risks += list(why_not.values())
+    add("risks", "bullets", "Risks and mitigations", risks)
+    add("kpis", "bullets", "KPIs to track",
+        [f"Metric: {metric}", f"Target: {best_opt.get('expected_effect', 'n/a')}",
+         "Review: weekly", "Review dates: 30, 60, 90 days"])
+    if has_research:
+        add("sources", "sources", "Sources",
+            [f"[{s.get('number', i + 1)}] {s.get('title', '')} - "
+             f"{urllib.parse.urlparse(s.get('url', '')).netloc or s.get('url', '')} - "
+             f"{s.get('retrieved_date', '')}"
+             for i, s in enumerate(sources)],
+            sources_list=sources)
+
+    max_slides = int(cfg.get("max_slides", 18))
+    return slides[:max_slides]
 
 
 def make_plan(r, topic, org, cfg, ai=None, agent=None):
-    """Build a slide plan. When agent is provided, build the decision deck."""
-    if agent is not None:
-        return make_decision_plan(r, topic, org, cfg, agent)
-    on = cfg["slides"]
+    """Build a slide plan. When agent has the full pipeline result, build the agent deck."""
+    if agent is not None and "check" in agent:
+        return make_agent_plan(agent, org, cfg)
+    on = cfg.get("slides", {})
     m, c = r["metric"], r["category"]
     summary = [
         f"Topic: {topic}",

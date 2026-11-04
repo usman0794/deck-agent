@@ -1,5 +1,5 @@
 """Decision agent: generate three options, score them, and recommend one."""
-from core import analyze, research
+from core import analyze, archetypes, check, guardrails, problem, research, understand
 
 # Weighted score. Cost and risk are lower-is-better, so they are inverted.
 WEIGHTS = {"impact": 0.4, "cost": 0.25, "risk": 0.2, "speed": 0.15}
@@ -93,28 +93,192 @@ def make_reason(scored, best):
     return f"{winner['name']} leads {runner['name']} on {', '.join(criteria)}."
 
 
-def run_agent(df, problem, goal, metric, category, cfg, use_ai):
-    """Run the full decision pipeline and return analysis, options, best, reason and mode."""
-    result = analyze.analyze(df, metric, category)
+def _decorate_options(options, analysis, problem, direction, group_col, research_result):
+    """Add idea, steps, evidence ids, expected effect, risk and failure condition."""
+    themes = (research_result or {}).get("themes", {})
+    groups = analysis.get("groups")
+    if groups is None:
+        groups = {}
+    theme_for = {"Target": "causes", "Copy": "good_practices", "Spread": "benchmarks",
+                 "Quick win": "risks", "Pilot": "good_practices", "Concentrate": "benchmarks"}
+    for o in options:
+        name = o.get("name", "")
+        prefix = next((p for p in theme_for if name.startswith(p)), "")
+        theme = theme_for.get(prefix, "good_practices")
+        source_map = (research_result or {}).get("finding_source_map", {})
+        o["evidence_ids"] = list(dict.fromkeys(
+            str(source_map.get(fid, fid)) for fid in themes.get(theme, [])))[:2]
+        o["expected_effect"] = f"estimate: {o.get('est_effect', 'n/a')}"
+        target = analysis["top"] if direction == "reduce" else analysis["low"]
+        if name.startswith("Target"):
+            o["idea"] = f"Focus on {target}, the largest contributor."
+            o["how_it_works"] = [f"Identify the {group_col} groups driving {problem}.",
+                                 f"Focus effort on {target}.", "Review weekly and reallocate."]
+            o["main_risk"] = "The target group may not respond; the effect may be smaller than estimated."
+            o["failure_condition"] = "No measurable change in the metric within 60 days."
+        elif name.startswith("Copy"):
+            best = analysis["low"] if direction == "reduce" else analysis["top"]
+            o["idea"] = f"Apply what {best} does well to the other groups."
+            o["how_it_works"] = [f"Study what {best} does differently.",
+                                 "Document the practice and adapt it.",
+                                 "Roll out with training and check adoption."]
+            o["main_risk"] = "The practice may not transfer to other groups."
+            o["failure_condition"] = "Adoption stays below half after one quarter."
+        elif name.startswith("Spread"):
+            o["idea"] = f"Distribute effort evenly across all {group_col} groups."
+            o["how_it_works"] = [f"Define the same baseline action for every {group_col}.",
+                                 "Allocate effort evenly.", "Monitor variation and adjust."]
+            o["main_risk"] = "Spreading effort may dilute impact in the worst groups."
+            o["failure_condition"] = "No group improves by at least 10%."
+        elif name.startswith("Quick win"):
+            small = min(groups.index, key=lambda k: float(groups[k])) if groups is not None and len(groups) else target
+            o["idea"] = f"Start with {small}, the smallest group, for a fast win."
+            o["how_it_works"] = [f"Pick {small} as a low-risk starting point.",
+                                 "Run a short, contained improvement.", "Use the result to build momentum."]
+            o["main_risk"] = "The win may be too small to matter."
+            o["failure_condition"] = "The quick win does not complete within 30 days."
+        elif name.startswith("Pilot"):
+            ordered = sorted(groups.index, key=lambda k: float(groups[k])) if groups is not None and len(groups) else [target]
+            pilot = ordered[len(ordered) // 2] if ordered else target
+            o["idea"] = f"Test the approach in {pilot} first, then scale."
+            o["how_it_works"] = [f"Run a pilot in {pilot}.", "Measure and refine.",
+                                 "Scale to the other groups."]
+            o["main_risk"] = "The pilot may not represent the other groups."
+            o["failure_condition"] = "The pilot shows no improvement within 60 days."
+        elif name.startswith("Concentrate"):
+            shares = {str(k): float(v) for k, v in groups.items()}
+            top = sorted(shares, key=shares.get, reverse=True)[:2]
+            o["idea"] = f"Put most effort into the top contributors: {', '.join(top)}."
+            o["how_it_works"] = [f"Identify the top contributors: {', '.join(top)}.",
+                                 "Concentrate budget and attention there.", "Track the combined effect."]
+            o["main_risk"] = "Over-concentration may neglect smaller groups."
+            o["failure_condition"] = "The top contributors do not improve within 60 days."
+        else:
+            o["idea"] = o.get("summary", "")
+            o["how_it_works"] = ["Define the action.", "Implement and measure.", "Review and adjust."]
+            o["main_risk"] = "Execution risk."
+            o["failure_condition"] = "No measurable effect within 90 days."
+    return options
+
+
+def _has_duplicates(options):
+    """True when two options share a name or a target group."""
+    names = [o.get("name") for o in options]
+    if len(set(names)) != len(names):
+        return True
+    targets = []
+    for o in options:
+        name = o.get("name", "")
+        target = None
+        for prefix in ("Target ", "Copy ", "Quick win in ", "Pilot in ", "Concentrate on "):
+            if name.startswith(prefix):
+                target = name[len(prefix):].split(" and ")[0].split(",")[0].strip()
+                break
+        targets.append(target)
+    non_null = [t for t in targets if t]
+    return len(set(non_null)) != len(non_null)
+
+
+def run_agent(df, user_text, cfg, use_ai, overrides=None, asked=None, research_result=None):
+    """Run stages 1-4. Returns status, questions (when needed) and the full result."""
+    overrides = overrides or {}
+    asked = set(asked or [])
+    findings = guardrails.validate_input(df, user_text)
+    profile = understand.profile_data(df)
+    data_summary = understand.interpret_data(df, profile, cfg, use_ai)
+    problem_type = problem.classify_problem(user_text, cfg, use_ai)
+    numeric_cols = list(profile.get("numeric", {}).keys())
+    categorical_cols = list(profile.get("categories", {}).keys())
+    intent = understand.understand_user(user_text, list(df.columns), cfg, use_ai, df=df,
+                                        numeric_columns=numeric_cols,
+                                        categorical_columns=categorical_cols)
+    for key in ("problem", "goal", "metric", "group", "constraints", "audience"):
+        if overrides.get(key) not in (None, ""):
+            intent[key] = overrides[key]
+    if not intent.get("metric"):
+        intent["metric"] = data_summary.get("suggested_metric")
+    if not intent.get("group"):
+        intent["group"] = data_summary.get("suggested_group")
+    if not intent.get("problem"):
+        intent["problem"] = (user_text or "Decision").strip()
+
+    questions = []
+    if not intent.get("problem"):
+        questions.append({"id": "problem", "field": "problem",
+                          "text": "What problem are you trying to solve?",
+                          "kind": "text", "options": None, "required": True})
+    if not intent.get("goal"):
+        questions.append({"id": "goal", "field": "goal",
+                          "text": "Do you want to increase or reduce it?",
+                          "kind": "choice", "options": ["increase", "reduce"], "required": True})
+    if not intent.get("metric"):
+        numeric = list(profile.get("numeric", {}).keys())
+        if numeric:
+            questions.append({"id": "metric", "field": "metric",
+                              "text": "Which column is the metric?",
+                              "kind": "choice", "options": numeric, "required": True})
+    questions = [q for q in questions if q["id"] not in asked]
+    if questions:
+        return {
+            "status": "needs_input",
+            "questions": questions[:3],
+            "profile": profile,
+            "data_summary": data_summary,
+            "user_intent": intent,
+            "problem_type": problem_type,
+            "findings": findings,
+            "mode": "rules",
+        }
+
+    direction = intent.get("goal") or "reduce"
+    analysis = analyze.analyze(df, intent["metric"], intent["group"])
     options = None
     mode = "rules"
     if use_ai and research.available(cfg):
         try:
-            options = research.ai_options(problem, goal, result["metric"], result["category"], cfg)
+            options = research.ai_options(
+                intent["problem"], direction, analysis["metric"], analysis["category"], cfg,
+                constraints=intent.get("constraints"))
             mode = "ai"
         except Exception:
             options = None
     if not options:
-        options = rule_options(result, problem, goal, result["metric"], result["category"])
+        options = archetypes.build_options(problem_type["type"], analysis,
+                                           intent["problem"], direction, analysis["category"])
+    options = _decorate_options(options, analysis, intent["problem"], direction,
+                                analysis["category"], research_result)
+    if _has_duplicates(options):
+        options = archetypes.build_options(problem_type["type"], analysis,
+                                           intent["problem"], direction, analysis["category"])
+        options = _decorate_options(options, analysis, intent["problem"], direction,
+                                    analysis["category"], research_result)
     clamp_options(options)
+    findings += guardrails.validate_options(options)
     scored = score_options(options)
     best = pick_best(scored)
+    findings += guardrails.validate_decision(scored, best)
     reason = make_reason(scored, best)
+    sens = check.sensitivity(scored)
+    crit = check.critique(intent["problem"], analysis, scored, best, cfg, use_ai)
+    has_research = bool(research_result and research_result.get("findings"))
+    evidence_strength = len(scored[best].get("evidence_ids", [])) if has_research else 0
+    conf = check.confidence(sens, scored, best, evidence_strength=evidence_strength,
+                            has_research=has_research)
+    why_not = check.why_not_others(scored, best)
+    tie = check.is_tie(scored)
     return {
-        "result": result,
+        "status": "ok",
+        "profile": profile,
+        "data_summary": data_summary,
+        "user_intent": intent,
+        "problem_type": problem_type,
+        "result": analysis,
         "options": scored,
         "best": best,
         "reason": reason,
+        "check": {"sensitivity": sens, "critique": crit, "confidence": conf,
+                  "why_not": why_not, "tie": tie, "evidence_strength": evidence_strength},
+        "findings": findings,
         "mode": mode,
-        "goal": goal,
+        "research": research_result or {},
     }

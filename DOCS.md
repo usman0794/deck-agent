@@ -1,6 +1,6 @@
 # Briefing Deck Agent — Project Documentation
 
-A local tool that turns raw data into a short, editable PowerPoint briefing. You can load a CSV/Excel/JSON file or scrape a web page, draft a slide plan (optionally with AI context and actions), edit it, and download a `.pptx`.
+A local tool that turns raw data into an evidence-backed decision deck. Upload a CSV/Excel/JSON file or scrape a web page, describe the problem in plain words, optionally research it externally, and get three solutions, a recommendation, and a detailed `.pptx`.
 
 ---
 
@@ -11,21 +11,19 @@ A local tool that turns raw data into a short, editable PowerPoint briefing. You
   - Upload CSV, XLSX, or JSON.
   - Scrape a web page by CSS selector (tables, headings, lists, paragraphs).
   - Automatic page-text fallback when the selector matches nothing.
-- **Analysis**
-  - Detects a numeric metric and a grouping category.
-  - Computes totals, top/lowest groups, shares, and row counts.
-- **Slide planning**
-  - Editable titles and bullets.
-  - Toggle slides on/off and reorder them.
-  - Optional branded `.pptx` template.
-  - Optional AI-drafted context and actions (Groq or LongCat).
-- **Downloads**
-  - `briefing.pptx`
-  - Standalone `build_briefing.py` that rebuilds the deck
-  - Loaded data as CSV
-  - Offline kit (`.zip`) for command-line use
-- **Offline CLI** for running without the UI or sign-in.
-- **Tab persistence** — refreshing keeps you on the same tab.
+- **Understanding**
+  - Classifies the problem type (improve, prioritise, allocate, diagnose, choose).
+  - Extracts the goal, metric, group, constraints and audience from plain words.
+  - Asks clarifying questions only when required, never repeats them.
+- **Deep research (optional)**
+  - Plans sub-questions, searches, fetches safely, verifies snippets, and groups findings into themes.
+  - Rule-based fallback when no search provider or key is available.
+- **Decision**
+  - Three evidence-backed options with code-computed estimates.
+  - Weighted scoring, 6-scenario sensitivity, confidence with reasons.
+  - "Why not the others" and human-decision tie handling.
+- **Deck** — up to 18 slides with speaker notes, sources, roadmap, risks and KPIs.
+- **Interfaces** — Next.js + Tailwind CSS + shadcn/ui frontend (`web/`), FastAPI backend (`api/`), offline CLI (`cli.py`).
 
 ---
 
@@ -33,30 +31,28 @@ A local tool that turns raw data into a short, editable PowerPoint briefing. You
 
 ```
 ppt agent/
-├── app.py                 Streamlit UI (sign-in, data, plan, download)
+├── web/                   Next.js + Tailwind CSS + shadcn/ui frontend
+│   ├── app/               Pages (login, dashboard)
+│   ├── components/ui/     shadcn/ui components
+│   └── lib/               API client and types
+├── api/                   FastAPI backend
+├── service/               UI-independent session workflow
+├── core/                  Pure logic (data, understand, decide, check, plan, build, research, auth)
 ├── cli.py                 Offline command-line mode
 ├── manage_users.py        Add / remove / list users
-├── config.json            Slide settings, theme colour, chart/table limits
+├── config.json            Slides, colours, limits, research settings
 ├── requirements.txt       Python dependencies
 ├── sample_data.csv        Example data
 ├── README.md              Quick start
 ├── DOCS.md                This document
+├── docs/                  API contract
 ├── .env                   Your keys and AI settings (git-ignored)
 ├── .env.example           Template for .env
 ├── access.json            Simple users/roles (plain passwords, git-ignored)
 ├── access.example.json    Template for access.json
 ├── .auth_secret           Auto-generated login-cookie signing key (git-ignored)
 ├── .gitignore             Ignores secrets, venv, cache, generated .pptx
-├── users.json             PBKDF2 password hashes (legacy)
-└── core/
-    ├── __init__.py        Loads .env at startup
-    ├── auth.py            Users, password hashing, session tokens
-    ├── data.py            CSV / Excel / JSON loading
-    ├── scraper.py         Web page scraping
-    ├── analyze.py         Metric / category analysis
-    ├── plan.py            Slide plan generation
-    ├── build.py           PowerPoint builder
-    └── research.py        Optional AI step (Groq / LongCat)
+└── users.json             PBKDF2 password hashes
 ```
 
 ---
@@ -64,28 +60,33 @@ ppt agent/
 ## 3. Requirements
 
 - Python 3.10+
-- Streamlit **1.65+** (uses `st.pills`, `st.iframe`, `st.query_params`, `st.context.cookies`)
-- Packages listed in `requirements.txt`
+- Node.js 20+ (for the Next.js frontend)
+- Packages listed in `requirements.txt` (backend) and `web/package.json` (frontend)
 
 ```powershell
 pip install -r requirements.txt
+cd web
+npm install
 ```
 
 ---
 
-## 4. Quick start (web UI)
+## 4. Quick start
 
 ```powershell
-# 1. Create your local settings
-copy .env.example .env
-# 2. Edit .env and add your AI key(s)
-# 3. Run the app
-.\venv\Scripts\streamlit.exe run app.py
+# Backend
+pip install -r requirements.txt
+copy .env.example .env      # then edit .env with your keys
+uvicorn api.main:app --reload
+
+# Frontend (new terminal)
+cd web
+npm install
+echo "NEXT_PUBLIC_API_URL=http://localhost:8000" > .env.local
+npm run dev
 ```
 
-Open the printed local URL (default `http://localhost:8501`).
-
-Demo login: `admin` / `admin123` — **change it before real use**:
+Open http://localhost:3000. Demo login: `admin` / `admin123` — **change it before real use**:
 
 ```powershell
 python manage_users.py add yourname
@@ -129,7 +130,7 @@ Notes:
 
 - `AI_PROVIDER` must be `groq` or `longcat`. If it is missing, the AI checkbox is disabled and the AI step reports what to set.
 - `GROQ_MODEL` / `LONGCAT_MODEL` select the model for each provider.
-- `.env` is git-ignored and is never included in the offline kit.
+- `.env` is git-ignored and never committed.
 
 ### 5.2 `config.json`
 
@@ -137,10 +138,19 @@ Notes:
 {
   "organisation": "Your Organisation",
   "theme": { "primary": "01411C" },
-  "slides": { "summary": true, "key_figures": true, "chart": true, "table": false, "actions": true },
+  "slides": {
+    "executive_summary": true, "problem": true, "data": true, "chart": true,
+    "research": true, "good_practices": true, "solutions": true, "comparison": true,
+    "criteria": true, "scores": true, "robustness": true, "recommendation": true,
+    "roadmap": true, "risks": true, "kpis": true, "sources": true,
+    "key_figures": false, "table": false
+  },
+  "max_slides": 18,
   "max_chart_items": 6,
   "table_rows": 8,
-  "table_cols": 6
+  "table_cols": 6,
+  "search": { "provider": "ddgs", "env_var": "SEARCH_API_KEY", "base_url": "https://api.example.com/search" },
+  "research": { "max_seconds": 120, "max_model_calls": 25, "max_queries": 6, "max_pages": 10, "max_results": 5, "cache_dir": "cache" }
 }
 ```
 
@@ -148,13 +158,15 @@ Notes:
 |---|---|
 | `organisation` | Default organisation shown on the title slide |
 | `theme.primary` | Hex colour for slide titles and charts (no `#`) |
-| `slides.summary` | Include the Summary slide |
-| `slides.key_figures` | Include the Key figures slide |
-| `slides.chart` | Include the chart slide |
-| `slides.table` | Include the data table slide |
-| `slides.actions` | Include the Recommended actions slide |
+| `slides.*` | Toggle each slide; `max_slides` caps the deck at 18 |
 | `max_chart_items` | Maximum categories shown in the chart |
 | `table_rows` / `table_cols` | Data table size limits |
+| `search.provider` | `ddgs` (no key) or `key` (key-based provider) |
+| `search.env_var` | Env var that holds the search key when `provider` is `key` |
+| `research.max_seconds` | Total research time budget (default 120 s) |
+| `research.max_model_calls` | AI call cap for research (default 25) |
+| `research.max_queries` / `max_pages` | Search query / page fetch caps |
+| `research.cache_dir` | Folder for the fetched-page cache (`cache/`) |
 
 ---
 
@@ -173,8 +185,8 @@ Edit `access.json` to add users. Passwords are plain text; the role is optional.
 }
 ```
 
-- `role: admin` — full access, including the AI step and the offline-kit download.
-- `role: viewer` — can load data, draft/edit the plan and download the deck, but cannot use the AI step or download the offline kit.
+- `role: admin` — full access, including the AI step and research.
+- `role: viewer` — can load data, draft/edit the plan and download the deck, but cannot use the AI step or research.
 - Changes take effect immediately; the file is read on every sign-in and session restore.
 - `access.json` is git-ignored because it contains plain passwords. Use `access.example.json` as the template.
 
@@ -237,64 +249,41 @@ Good test pages:
 
 ---
 
-## 8. Slide planning
+## 8. Decision flow
 
-1. **Load data** in tab 1.
-2. In tab 2, enter a **Decision or topic** and **Organisation** (placeholders show examples; blanks fall back to `Briefing` and the configured organisation).
-3. Optionally upload a branded `.pptx` template.
-4. Optionally enable **Add AI-drafted context and actions**.
-5. Click **Draft slide plan**.
+1. **Load data** — upload a file or scrape a web table.
+2. **Describe the problem** in plain words. The agent extracts the goal, metric, group, constraints and audience, and shows what it understood.
+3. **Confirm** the understanding (or answer a few clarifying questions first).
+4. **Research (optional)** — search the web for good practices, causes, benchmarks and risks.
+5. **Options** — three evidence-backed solutions with ratings; adjust ratings if needed.
+6. **Decision** — confidence, recommendation, why-not-the-others, and the downloadable deck.
 
-The plan contains:
+### Research step
 
-1. Title slide
-2. Summary
-3. Key figures
-4. Chart
-5. Data table (off by default)
-6. Recommended actions
-
-You can edit titles and bullets, toggle slides, and reorder them with Up/Down.
-
-### AI step
-
-- The AI step does **not** browse the web. Treat its output as a draft and verify it.
-- It uses the OpenAI-compatible API for either provider.
-- The model and provider come from `.env`; nothing is hardcoded in the app.
-- `AI_MAX_TOKENS` controls the response length (default 2000).
-- The AI checkbox is disabled when the provider, key, or model is missing.
+- Searches use only the generic problem wording; group names, row values, file names and PII are stripped from queries.
+- Fetched pages are untrusted data: snippets are verified against the page text, and prompt-injection phrases are flagged and ignored.
+- Every AI step has a rule-based fallback, so the app works with no key and no network.
 
 ---
 
 ## 9. Downloads
 
-| Where | Button | File |
+| Where | Action | File |
 |---|---|---|
-| Sidebar | Download offline kit (.zip) | `briefing_kit.zip` |
-| Tab 1 | Download loaded data (.csv) | `loaded_data.csv` |
-| Tab 3 | Download briefing.pptx | `briefing.pptx` |
-| Tab 3 | Download build script (.py) | `build_briefing.py` |
+| Decision step | Download deck | `briefing.pptx` |
+| API | `POST /sessions/{id}/deck` then `GET /sessions/{id}/deck.pptx` | `briefing.pptx` |
+| CLI | `--out briefing.pptx` | `briefing.pptx` |
 
-### `build_briefing.py`
+The UI and API **build the deck before downloading**; calling `GET` before `POST` returns `404`.
 
-A standalone script generated from the current plan, data, analysis and config. Run it from the project root:
-
-```powershell
-python build_briefing.py
-```
-
-It writes `briefing.pptx` next to the script.
-
-### Offline kit
-
-The zip contains `cli.py`, `config.json`, `requirements.txt`, `sample_data.csv`, `README.md`, `.env.example` and `core/` (except `auth.py`). It does not contain `.env`, `.auth_secret`, or user data.
+The deck contains up to 18 slides: title, executive summary, problem, data, chart, research findings, good practices, three solutions, comparison, criteria, robustness, recommendation, roadmap, risks, KPIs and sources. Sources are deduplicated by URL and numbered; findings reference those numbers. Speaker notes carry the reasoning on slides 2, 6, 8–10, 13 and 14.
 
 ---
 
 ## 10. Offline CLI
 
 ```powershell
-python cli.py data.csv --topic "Expand bus fleet" --org "My Team" --out briefing.pptx
+python cli.py data.csv --text "we pay too much overtime and HR needs a plan next month" --out briefing.pptx
 ```
 
 Options:
@@ -302,20 +291,21 @@ Options:
 | Option | Meaning |
 |---|---|
 | `data` | Path to CSV / Excel / JSON |
-| `--topic` | Decision or topic (default `Briefing`) |
+| `--text` | Describe the situation in plain words |
+| `--answers` | JSON file or inline JSON with answers to clarifying questions |
+| `--topic` / `--goal` / `--metric` / `--category` | Optional overrides |
 | `--org` | Organisation (defaults to `config.json`) |
-| `--config` | Alternate config path |
-| `--template` | Branded `.pptx` template |
-| `--ai` | Add AI-drafted context and actions |
+| `--use-ai` | Use AI for option wording (requires a key) |
+| `--research` / `--no-research` | Run external research (default on when a search provider is available) |
 | `--out` | Output path (default `briefing.pptx`) |
 
-The CLI has no sign-in and no UI. It uses the same `.env` settings for the AI step.
+The CLI calls the service layer, so it exercises the same workflow as the API.
 
 ---
 
-## 11. Tab persistence
+## 11. Frontend flow
 
-The active tab is stored in the URL as `?tab=...`. Refreshing the page keeps you on the same tab. Only the selected tab is rendered.
+The Next.js UI (`web/`) walks through five steps: **Data → Problem → Research → Options → Decision**. Each step calls the API; the decision step builds the deck before downloading. Loading banners and button states show progress, and research shows page errors when pages are skipped.
 
 ---
 
@@ -328,9 +318,20 @@ The active tab is stored in the URL as `?tab=...`. Refreshing the page keeps you
 | `core/data.py` | CSV / Excel / JSON loading with delimiter sniffing |
 | `core/scraper.py` | HTTP fetch, CSS selection, table/text extraction |
 | `core/analyze.py` | Metric/category detection and summary statistics |
-| `core/plan.py` | Slide plan structure and default actions |
-| `core/build.py` | PowerPoint generation, charts, tables, templates |
+| `core/guardrails.py` | Input, option, decision, output and audit checks |
+| `core/problem.py` | Problem-type classification |
+| `core/understand.py` | Data profiling and intent extraction |
+| `core/archetypes.py` | Domain-neutral solution archetypes |
+| `core/decide.py` | Option generation, scoring and recommendation |
+| `core/check.py` | Sensitivity, critique, confidence |
+| `core/plan.py` | Deck slide structure |
+| `core/build.py` | PowerPoint generation, charts, tables, notes |
 | `core/research.py` | AI provider selection, model config, JSON response parsing |
+| `core/research_web.py` | Deep research: plan, search, fetch, extract, verify, synthesize |
+| `service/session.py` | Session model and stores (memory / file) |
+| `service/workflow.py` | Session workflow functions |
+| `api/main.py` | FastAPI endpoints |
+| `web/` | Next.js + Tailwind CSS + shadcn/ui frontend |
 
 ### `core.research` details
 
@@ -344,17 +345,29 @@ PROVIDERS = {
 - `AI_PROVIDER` selects the provider.
 - `GROQ_MODEL` / `LONGCAT_MODEL` select the model.
 - `AI_MAX_TOKENS` sets `max_tokens` (default 2000).
-- The response must be JSON with `background` and `actions` arrays; anything else raises an error.
+- `research.complete_json()` is a shared helper for AI JSON calls; `ai_options()` requests three scored options.
+- AI calls time out after **30 s**; every AI step has a rule-based fallback, so the app works with no key and no network.
+
+### `core.research_web` details
+
+- Search providers: `ddgs` (DuckDuckGo, no key) or `key` (generic key-based provider configured in `config.json`).
+- Queries are sanitised: column names, group values, file names and PII-like tokens are removed.
+- Fetched pages are untrusted: snippets must appear in the page, claims must share key terms with the snippet, and prompt-injection phrases are flagged.
+- Sources are deduplicated by URL and numbered; findings reference those numbers.
+- Low-quality claims (maintenance/offline/error/outage text) are dropped.
+- `page_errors` lists pages skipped by robots.txt, timeouts or HTTP errors.
+- Limits: 25 model calls, 120 s, 6 queries, 10 pages; exceeding them returns `partial`.
 
 ---
 
 ## 13. Security notes
 
-- `.env`, `.auth_secret`, `users.json` and generated `.pptx` files should not be shared or committed.
-- Passwords are PBKDF2 hashes, not plaintext.
+- `.env`, `.auth_secret`, `access.json`, `users.json`, `cache/`, `sessions/`, `session_data/` and generated `.pptx` files should not be shared or committed.
+- Passwords in `access.json` are plain text; `users.json` holds PBKDF2 hashes.
 - Session cookies are HMAC-signed and expiring.
-- For production, put the app behind HTTPS and consider SSO.
-- The scraper only fetches pages your machine can reach; respect each site's terms and `robots.txt`.
+- For production, put the API behind HTTPS and consider SSO.
+- The scraper only fetches pages your machine can reach, blocks private/local IPs (SSRF), respects `robots.txt`, and honours timeouts and size caps.
+- Research queries are sanitised: column names, group values, file names and PII-like tokens are removed before searching.
 
 ---
 
@@ -362,33 +375,41 @@ PROVIDERS = {
 
 | Problem | Likely cause | Fix |
 |---|---|---|
-| Login screen keeps appearing after refresh | Cookie not set / `.auth_secret` changed | Restart Streamlit, sign in again |
-| AI checkbox disabled | Missing provider, key, or model | Check `.env`: `AI_PROVIDER`, `GROQ_API_KEY`/`LONGCAT_API_KEY`, `GROQ_MODEL`/`LONGCAT_MODEL` |
-| `ModuleNotFoundError: openai` | Dependencies not installed | `pip install -r requirements.txt` |
+| Login screen keeps appearing | Cookie not set / `.auth_secret` changed | Restart the API and sign in again |
+| AI options disabled | Missing provider, key, or model | Check `.env`: `AI_PROVIDER`, `GROQ_API_KEY`/`LONGCAT_API_KEY`, `GROQ_MODEL`/`LONGCAT_MODEL` |
+| `ModuleNotFoundError` | Dependencies not installed | `pip install -r requirements.txt` (backend) / `npm install` in `web/` |
 | Scrape says "no table" | Page has no `<table>` | Use `h2`, `li`, or accept the page-text fallback |
 | Scrape returns almost nothing | Page is JavaScript-rendered | Use the site's export/API or copy the data |
 | CSV tokenizing error | Wrong delimiter or ragged rows | The loader sniffs delimiters and skips bad rows; check the file |
-| Refresh returns to Data tab | Old app version | Restart Streamlit; tab is stored in `?tab=` |
-| Port already in use | Another Streamlit process | Stop it or use `--server.port 8502` |
+| Downloaded `briefing.pptx` won't open | `GET /deck.pptx` called before `POST /deck` | The UI builds first; via API call `POST /sessions/{id}/deck` before downloading |
+| Research shows `partial` / skipped pages | robots.txt, timeouts or HTTP 429 | Wait and retry; the deck falls back to data-only options |
+| AI step hangs | Provider is slow or unreachable | AI calls time out after 30 s and fall back to rules |
+| Port already in use | Another API/frontend process | Stop it or run with `--port 8001` / `-p 3001` |
 
 ---
 
 ## 15. Development
 
-- Run the app with `streamlit run app.py`.
-- The offline kit is generated in memory by `offline_kit()` in `app.py`.
-- The build script is generated by `build_script()` in `app.py`.
+- Backend: `uvicorn api.main:app --reload`
+- Frontend: `cd web && npm run dev`
+- CLI: `python cli.py data.csv --text "..."`
+- Tests: `pytest`
 - `manage_users.py` supports `add`, `remove`, and `list`.
-- Tests are manual/browser-based; there is no automated test suite.
+- The API contract lives in `docs/api_contract.md`.
+- The frontend and backend are separate apps; the API is the boundary.
 
 ---
 
 ## 16. Changelog (recent)
 
-- Added Groq and LongCat AI providers via `.env`.
-- Added persistent login cookies and tab persistence.
-- Added downloadable `build_briefing.py`.
-- Added page-text fallback and scrape presets.
-- Added CSV delimiter sniffing and ragged-row handling.
-- Added placeholder hints for topic and organisation.
-- Replaced deprecated `use_container_width` with `width="stretch"`.
+- Fixed the deck download: the UI now builds the deck before fetching it, so `briefing.pptx` is always a valid file.
+- Deduplicated research sources by URL, numbered them and mapped evidence IDs to those numbers.
+- Filtered low-quality research claims (maintenance/offline/error/outage) and capped coverage at 100%.
+- Made the deck richer: data totals and top/lowest groups, actual research findings per theme, good practices with source numbers.
+- Added research loading states, page-error reporting and 30 s AI timeouts.
+- Added `GET /health`.
+- Replaced Streamlit with a Next.js + Tailwind CSS + shadcn/ui frontend (`web/`) and a FastAPI backend (`api/`).
+- Added problem types, domain-neutral archetypes, guardrails and a service layer.
+- Added deep research, evidence-backed options and a detailed 18-slide deck.
+- Added persistent login cookies and a pluggable bearer-token API.
+- Added CSV delimiter sniffing, page-text fallback and scrape presets.

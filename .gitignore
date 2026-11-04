@@ -11,3 +11,15 @@ venv/
 # Generated output
 *.pptx
 build_briefing.py
+
+# Sessions and uploaded data (file store)
+sessions/
+session_data/
+
+# Research page cache
+cache/
+
+# Frontend
+web/node_modules/
+web/.next/
+web/.env.local

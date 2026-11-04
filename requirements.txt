@@ -1,4 +1,3 @@
-streamlit>=1.65
 pandas>=2.0
 openpyxl>=3.1
 python-pptx>=0.6.23
@@ -6,3 +5,9 @@ requests>=2.31
 beautifulsoup4>=4.12
 python-dotenv>=1.0
 openai>=1.0   # only needed for the optional AI step (Groq or LongCat)
+fastapi>=0.110
+uvicorn>=0.29
+pydantic>=2.0
+python-multipart>=0.0.9
+httpx>=0.27    # for FastAPI TestClient tests
+ddgs>=6.0      # DuckDuckGo search for the optional deep-research step

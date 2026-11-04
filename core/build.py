@@ -1,5 +1,6 @@
 """Build a .pptx from a slide plan. Optionally uses a user-supplied .pptx as the base template."""
 import io
+import urllib.parse
 from pptx import Presentation
 from pptx.chart.data import CategoryChartData
 from pptx.dml.color import RGBColor
@@ -116,6 +117,50 @@ def build_pptx(plan, df, r, cfg, template_bytes=None):
                         cell.fill.solid()
                         cell.fill.fore_color.rgb = RGBColor.from_string("D9EAD3")
             _style_title(sl, color)
+
+        elif s["type"] == "scenarios":
+            sl = prs.slides.add_slide(_layout(prs, 5))
+            sl.shapes.title.text = s["title"]
+            rows = s.get("scenarios", [])
+            cols = ["Scenario", "Winner", "Score"]
+            t = sl.shapes.add_table(len(rows) + 1, len(cols), *box[:3], Inches(0.4) * (len(rows) + 1)).table
+            for j, col in enumerate(cols):
+                cell = t.cell(0, j)
+                cell.text = col
+                for p in cell.text_frame.paragraphs:
+                    p.font.bold = True
+            for i, row in enumerate(rows):
+                vals = [str(row.get("name", "")), str(row.get("winner", "")), f"{row.get('score', 0):.2f}"]
+                for j, v in enumerate(vals):
+                    t.cell(i + 1, j).text = v
+            _style_title(sl, color)
+
+        elif s["type"] == "sources":
+            sl = prs.slides.add_slide(_layout(prs, 5))
+            sl.shapes.title.text = s["title"]
+            source_rows = s.get("sources_list", [])
+            cols = ["No.", "Title", "Domain", "Retrieved", "URL"]
+            rows = len(source_rows) + 1
+            t = sl.shapes.add_table(rows, len(cols), *box[:3], Inches(0.35) * rows).table
+            for j, col in enumerate(cols):
+                cell = t.cell(0, j)
+                cell.text = col
+                for p in cell.text_frame.paragraphs:
+                    p.font.bold = True
+            for i, src in enumerate(source_rows):
+                url = str(src.get("url", ""))
+                domain = urllib.parse.urlparse(url).netloc or url
+                vals = [str(i + 1), str(src.get("title", "")), domain,
+                        str(src.get("retrieved_date", "")), url]
+                for j, v in enumerate(vals):
+                    t.cell(i + 1, j).text = v[:80]
+            _style_title(sl, color)
+
+        if s.get("notes"):
+            sl.notes_slide.notes_text_frame.text = str(s["notes"])[:2000]
+        if s.get("footer"):
+            foot = sl.shapes.add_textbox(Inches(0.5), sh - Inches(0.6), sw - Inches(1), Inches(0.4))
+            foot.text_frame.text = str(s["footer"])[:300]
 
     out = io.BytesIO()
     prs.save(out)
