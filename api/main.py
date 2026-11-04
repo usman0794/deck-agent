@@ -86,6 +86,11 @@ async def _value_error_handler(request, exc):
                   detail.get("findings"), status)
 
 
+@app.get("/sessions/{session_id}")
+def get_session(session_id: str, _user=Depends(get_current_user)):
+    return workflow._get(session_id).to_dict()
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}

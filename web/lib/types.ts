@@ -69,7 +69,7 @@ export interface ResearchResult {
 export interface Decision {
   status: string;
   problem_type: ProblemType;
-  user_intent: UserIntent;
+  user_intent: UserIntent | null;
   options: Option[];
   best: number;
   reason: string;

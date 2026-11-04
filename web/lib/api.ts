@@ -1,4 +1,4 @@
-import type { Decision, Finding, Option, Question, ResearchResult, Source, UserIntent } from "./types";
+import type { Confidence, Decision, Finding, Option, ProblemType, Question, ResearchResult, Source, UserIntent } from "./types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -38,12 +38,30 @@ async function request<T = unknown>(path: string, options: RequestInit = {}): Pr
   return data as T;
 }
 
-interface SessionResponse { id: string; status: string }
+interface CreateSessionResponse { id: string; status: string }
 interface DataResponse { status: string }
 interface ProblemResponse { status: string; questions?: Question[]; user_intent?: UserIntent }
 interface OptionsResponse { status: string; options: Option[] }
 interface SourcesResponse { status: string; sources: Source[] }
 interface AuditResponse { status: string; findings: unknown[] }
+
+export interface SessionResponse {
+  id: string;
+  status: string;
+  problem_type: ProblemType;
+  user_text: string;
+  intent: UserIntent | null;
+  options: Option[];
+  best: number;
+  reason: string;
+  confidence: Confidence;
+  research: ResearchResult | null;
+  check: { why_not: Record<string, string>; tie: boolean; evidence_strength: number } | null;
+  deck_path: string | null;
+  profile: { rows: number; columns: Record<string, unknown> } | null;
+  questions_asked: string[];
+  questions_answered: Record<string, string>;
+}
 
 export const api = {
   login: (username: string, password: string) =>
@@ -51,7 +69,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ username, password }),
     }),
-  createSession: () => request<SessionResponse>("/sessions", { method: "POST" }),
+  createSession: () => request<CreateSessionResponse>("/sessions", { method: "POST" }),
   uploadData: (sessionId: string, file: File) => {
     const form = new FormData();
     form.append("file", file);
@@ -90,6 +108,7 @@ export const api = {
       body: JSON.stringify({ option_ratings: optionRatings, weights }),
     }),
   getDecision: (sessionId: string) => request<Decision>(`/sessions/${sessionId}/decision`),
+  getSession: (sessionId: string) => request<SessionResponse>(`/sessions/${sessionId}`),
   buildDeck: (sessionId: string) => request(`/sessions/${sessionId}/deck`, { method: "POST" }),
   getSources: (sessionId: string) => request<SourcesResponse>(`/sessions/${sessionId}/sources`),
   getAudit: (sessionId: string) => request<AuditResponse>(`/sessions/${sessionId}/audit`),

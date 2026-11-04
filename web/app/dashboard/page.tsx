@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { api, clearToken, getToken } from "@/lib/api";
+import { api, clearToken, getToken, type SessionResponse } from "@/lib/api";
 import type { Decision, Finding, Option, Question, ResearchResult, UserIntent } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,6 +33,24 @@ const STEPS: { id: Step; label: string }[] = [
   { id: "decision", label: "Decision" },
 ];
 
+function stepFromStatus(status: string): Step {
+  switch (status) {
+    case "data_loaded":
+    case "needs_input":
+    case "understood":
+      return "problem";
+    case "researched":
+      return "research";
+    case "options_ready":
+      return "options";
+    case "decided":
+    case "deck_ready":
+      return "decision";
+    default:
+      return "data";
+  }
+}
+
 export default function DashboardPage() {
   const router = useRouter();
   const [step, setStep] = useState<Step>("data");
@@ -53,19 +71,86 @@ export default function DashboardPage() {
   const [scrapeUrl, setScrapeUrl] = useState("");
   const [scrapeSelector, setScrapeSelector] = useState("table tr");
 
+  function startNewSession() {
+    api.createSession()
+      .then((s) => {
+        setSessionId(s.id);
+        localStorage.setItem("bdauth_session", s.id);
+      })
+      .catch((e) => setError(e.message));
+  }
+
+  function restoreSession(s: SessionResponse) {
+    setSessionId(s.id);
+    localStorage.setItem("bdauth_session", s.id);
+    setDataStatus(s.status === "created" ? "" : "data_loaded");
+    setProblemText(s.user_text || "");
+    if (s.intent) setIntent(s.intent);
+    if (s.research) setResearch(s.research);
+    if (s.options?.length) setOptions(s.options);
+    if (s.confidence) {
+      setDecision({
+        status: s.status,
+        problem_type: s.problem_type || "improve",
+        user_intent: s.intent ?? null,
+        options: s.options ?? [],
+        best: s.best ?? 0,
+        reason: s.reason ?? "",
+        confidence: s.confidence,
+        why_not: s.check?.why_not ?? {},
+        tie: s.check?.tie ?? false,
+        evidence_strength: s.check?.evidence_strength ?? 0,
+        findings: [],
+      });
+    }
+    setStep(stepFromStatus(s.status));
+    if (s.status === "needs_input") {
+      api.submitProblem(s.id, s.user_text || "")
+        .then((res) => {
+          if (res.status === "needs_input") setQuestions(res.questions || []);
+        })
+        .catch(() => {});
+    }
+  }
+
   useEffect(() => {
     if (!getToken()) {
       router.replace("/login");
       return;
     }
-    api.createSession()
-      .then((s) => setSessionId(s.id))
-      .catch((e) => setError(e.message));
+    const saved = localStorage.getItem("bdauth_session");
+    if (saved) {
+      api.getSession(saved)
+        .then(restoreSession)
+        .catch(() => {
+          localStorage.removeItem("bdauth_session");
+          startNewSession();
+        });
+    } else {
+      startNewSession();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
   function logout() {
+    localStorage.removeItem("bdauth_session");
     clearToken();
     router.replace("/login");
+  }
+
+  function newSession() {
+    localStorage.removeItem("bdauth_session");
+    setSessionId("");
+    setDataStatus("");
+    setProblemText("");
+    setIntent(null);
+    setQuestions([]);
+    setAnswers({});
+    setResearch(null);
+    setOptions([]);
+    setDecision(null);
+    setStep("data");
+    startNewSession();
   }
 
   async function run(label: string, fn: () => Promise<unknown>) {
@@ -187,6 +272,7 @@ export default function DashboardPage() {
           <h1 className="text-2xl font-semibold">Briefing Deck Agent</h1>
           <p className="text-sm text-muted-foreground">Data → problem → research → options → decision</p>
         </div>
+        <Button variant="outline" onClick={newSession}>New session</Button>
         <Button variant="outline" onClick={logout}>Sign out</Button>
       </header>
 
