@@ -200,6 +200,7 @@ def run_research(session_id):
             "sources": result.get("sources", []), "message": result.get("message", ""),
             "kept": result.get("kept", 0), "dropped": result.get("dropped", 0),
             "model_calls": result.get("model_calls", 0),
+            "page_errors": result.get("page_errors", []),
             "session": session.to_dict()}
 
 

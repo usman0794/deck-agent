@@ -167,8 +167,11 @@ def _safe_get(url, timeout=10, max_bytes=MAX_HTML):
         ip = info[4][0]
         if _is_private_ip(ip):
             raise ResearchError("Private or local addresses are blocked")
-    resp = requests.get(url, headers={"User-Agent": UA}, timeout=timeout,
-                        allow_redirects=False, stream=True)
+    try:
+        resp = requests.get(url, headers={"User-Agent": UA}, timeout=timeout,
+                            allow_redirects=False, stream=True)
+    except requests.RequestException as exc:
+        raise ResearchError(f"Could not fetch {url}: {exc}")
     if resp.status_code in (301, 302, 303, 307, 308):
         location = resp.headers.get("Location", "")
         if location:
@@ -316,7 +319,7 @@ def synthesize(findings, subquestions, cfg, counter):
             else:
                 themes["good_practices"].append(f["id"])
     covered = len({fid for ids in themes.values() for fid in ids})
-    coverage = round(covered / len(subquestions), 2) if subquestions else 0.0
+    coverage = min(1.0, round(covered / len(subquestions), 2)) if subquestions else 0.0
     return themes, coverage
 
 
@@ -331,7 +334,8 @@ def research(problem, problem_type, columns, cfg, use_ai=False, group_values=Non
     counter = [0]
     result = {"themes": {"causes": [], "good_practices": [], "benchmarks": [], "risks": []},
               "findings": [], "sources": [], "coverage": 0.0, "status": "ok",
-              "queries": [], "kept": 0, "dropped": 0, "model_calls": 0, "message": ""}
+              "queries": [], "kept": 0, "dropped": 0, "model_calls": 0, "message": "",
+              "page_errors": []}
     try:
         subquestions = plan_questions(problem, problem_type, columns, cfg, use_ai, counter)
         result["queries"] = [_sanitize_query(q, columns, group_values) for q in subquestions[:max_queries]]
@@ -365,13 +369,26 @@ def research(problem, problem_type, columns, cfg, use_ai=False, group_values=Non
                 result["message"] = str(exc)
                 break
         findings, sources = [], {}
+        page_errors = []
         for url in urls[:max_pages]:
             if time.time() - start > max_seconds:
                 result["status"] = "partial"; result["message"] = "Time budget reached"; break
             try:
                 page = fetch_page(url, cfg)
+            except requests.HTTPError as exc:
+                status = exc.response.status_code if exc.response is not None else None
+                if status == 429:
+                    time.sleep(1.0)  # one backoff retry
+                    try:
+                        page = fetch_page(url, cfg)
+                    except Exception:
+                        page_errors.append(f"{url}: HTTP 429")
+                        continue
+                else:
+                    page_errors.append(f"{url}: HTTP {status}")
+                    continue
             except ResearchError as exc:
-                result["message"] = str(exc)
+                page_errors.append(f"{url}: {exc}")
                 continue
             text = page.get("text", "")
             title = page.get("title") or url
@@ -387,6 +404,9 @@ def research(problem, problem_type, columns, cfg, use_ai=False, group_values=Non
         result["sources"] = [{"id": sid, **v} for sid, v in sources.items()]
         result["coverage"] = coverage
         result["model_calls"] = counter[0]
+        result["page_errors"] = page_errors
+        if page_errors and not result["message"]:
+            result["message"] = f"Skipped {len(page_errors)} page(s)"
         if result["status"] == "ok" and not findings:
             result["status"] = "partial"
             if not result["message"]:

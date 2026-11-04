@@ -134,6 +134,7 @@ def ai_options(problem, goal, metric, category, cfg=None, constraints=None):
                 model=model,
                 max_tokens=int(os.getenv("AI_MAX_TOKENS", "2000")),
                 temperature=0.3,
+                timeout=30,
                 messages=[{"role": "user", "content": prompt}],
             )
             text = resp.choices[0].message.content or ""
@@ -188,6 +189,7 @@ def complete_json(prompt, cfg=None, max_tokens=None):
         model=model,
         max_tokens=max_tokens or int(os.getenv("AI_MAX_TOKENS", "2000")),
         temperature=0.2,
+        timeout=30,
         messages=[{"role": "user", "content": prompt}],
     )
     text = resp.choices[0].message.content or ""

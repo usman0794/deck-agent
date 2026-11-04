@@ -63,6 +63,7 @@ export interface ResearchResult {
   sources: Source[];
   coverage: number;
   message?: string;
+  page_errors?: string[];
 }
 
 export interface Decision {

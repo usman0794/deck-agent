@@ -16,6 +16,15 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@
 
 type Step = "data" | "problem" | "research" | "options" | "decision";
 
+function Spinner({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg className={`animate-spin ${className}`} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+    </svg>
+  );
+}
+
 const STEPS: { id: Step; label: string }[] = [
   { id: "data", label: "Data" },
   { id: "problem", label: "Problem" },
@@ -39,6 +48,7 @@ export default function DashboardPage() {
   const [ratings, setRatings] = useState<Record<string, Record<string, number>>>({});
   const [useAi, setUseAi] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loadingLabel, setLoadingLabel] = useState("");
   const [error, setError] = useState("");
   const [scrapeUrl, setScrapeUrl] = useState("");
   const [scrapeSelector, setScrapeSelector] = useState("table tr");
@@ -60,6 +70,7 @@ export default function DashboardPage() {
 
   async function run(label: string, fn: () => Promise<unknown>) {
     setLoading(true);
+    setLoadingLabel(label);
     setError("");
     try {
       await fn();
@@ -67,11 +78,12 @@ export default function DashboardPage() {
       setError(e instanceof Error ? e.message : "Something went wrong");
     } finally {
       setLoading(false);
+      setLoadingLabel("");
     }
   }
 
   async function uploadFile(file: File) {
-    await run("upload", async () => {
+    await run("Uploading data…", async () => {
       const s = await api.uploadData(sessionId, file);
       setDataStatus(s.status);
       setStep("problem");
@@ -79,7 +91,7 @@ export default function DashboardPage() {
   }
 
   async function scrapePage() {
-    await run("scrape", async () => {
+    await run("Scraping page…", async () => {
       const s = await api.scrape(sessionId, scrapeUrl, scrapeSelector);
       setDataStatus(s.status);
       setStep("problem");
@@ -87,7 +99,7 @@ export default function DashboardPage() {
   }
 
   async function submitProblem() {
-    await run("understand", async () => {
+    await run("Understanding the problem…", async () => {
       const res = await api.submitProblem(sessionId, problemText);
       if (res.status === "needs_input") {
         setQuestions(res.questions || []);
@@ -98,7 +110,7 @@ export default function DashboardPage() {
   }
 
   async function answerAndContinue() {
-    await run("answer", async () => {
+    await run("Checking answers…", async () => {
       const res = await api.answerQuestions(sessionId, answers);
       if (res.status === "needs_input") {
         setQuestions(res.questions || []);
@@ -109,7 +121,7 @@ export default function DashboardPage() {
   }
 
   async function confirmIntent() {
-    await run("confirm", async () => {
+    await run("Confirming understanding…", async () => {
       const res = await api.confirm(sessionId, {
         problem: intent?.problem || problemText,
         goal: intent?.goal || "reduce",
@@ -122,14 +134,14 @@ export default function DashboardPage() {
   }
 
   async function runResearch() {
-    await run("research", async () => {
+    await run("Researching the web…", async () => {
       const res = await api.runResearch(sessionId);
       setResearch(res);
     });
   }
 
   async function generateOptions() {
-    await run("options", async () => {
+    await run("Generating options…", async () => {
       const res = await api.generateOptions(sessionId, useAi);
       setOptions(res.options || []);
       const initial: Record<string, Record<string, number>> = {};
@@ -142,7 +154,7 @@ export default function DashboardPage() {
   }
 
   async function updateRatings() {
-    await run("ratings", async () => {
+    await run("Scoring options…", async () => {
       const res = await api.updateRatings(sessionId, ratings);
       setOptions(res.options || []);
       const d = await api.getDecision(sessionId);
@@ -163,6 +175,7 @@ export default function DashboardPage() {
   }
 
   const best = decision ? decision.options[decision.best] : null;
+  const loadingFor = (label: string) => loading && loadingLabel === label;
 
   return (
     <main className="min-h-screen p-6">
@@ -193,6 +206,13 @@ export default function DashboardPage() {
 
         {error && <div className="mb-4 rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
 
+        {loading && (
+          <div className="mb-4 flex items-center gap-2 rounded-md border bg-muted p-3 text-sm">
+            <Spinner className="h-4 w-4" />
+            <span>{loadingLabel || "Loading…"}</span>
+          </div>
+        )}
+
         {step === "data" && (
           <Card>
             <CardHeader><CardTitle>Load your data</CardTitle></CardHeader>
@@ -206,7 +226,9 @@ export default function DashboardPage() {
               <div className="grid gap-3 sm:grid-cols-[1fr_160px_auto]">
                 <Input placeholder="https://example.com" value={scrapeUrl} onChange={(e) => setScrapeUrl(e.target.value)} />
                 <Input placeholder="table tr" value={scrapeSelector} onChange={(e) => setScrapeSelector(e.target.value)} />
-                <Button variant="secondary" onClick={scrapePage} disabled={loading || !scrapeUrl}>Scrape</Button>
+                <Button variant="secondary" onClick={scrapePage} disabled={loading || !scrapeUrl}>
+                  {loadingFor("Scraping page…") ? "Scraping…" : "Scrape"}
+                </Button>
               </div>
               {dataStatus && <Badge>{dataStatus}</Badge>}
             </CardContent>
@@ -224,7 +246,9 @@ export default function DashboardPage() {
                 disabled={loading}
               />
               <div className="flex gap-2">
-                <Button onClick={submitProblem} disabled={loading || !problemText.trim()}>Understand</Button>
+                <Button onClick={submitProblem} disabled={loading || !problemText.trim()}>
+                  {loadingFor("Understanding the problem…") ? "Understanding…" : "Understand"}
+                </Button>
                 <Button variant="outline" onClick={() => setStep("data")}>Back</Button>
               </div>
 
@@ -247,7 +271,7 @@ export default function DashboardPage() {
                     </div>
                   ))}
                   <Button onClick={answerAndContinue} disabled={loading || Object.keys(answers).length < questions.length}>
-                    Continue
+                    {loadingFor("Checking answers…") ? "Checking…" : "Continue"}
                   </Button>
                 </div>
               )}
@@ -261,7 +285,9 @@ export default function DashboardPage() {
                     <div><span className="text-muted-foreground">Metric:</span> {intent.metric}</div>
                     <div><span className="text-muted-foreground">Group:</span> {intent.group}</div>
                   </div>
-                  <Button onClick={confirmIntent} disabled={loading}>Confirm and continue</Button>
+                  <Button onClick={confirmIntent} disabled={loading}>
+                    {loadingFor("Confirming understanding…") ? "Confirming…" : "Confirm and continue"}
+                  </Button>
                 </div>
               )}
             </CardContent>
@@ -276,8 +302,12 @@ export default function DashboardPage() {
                 Search the web for good practices, causes, benchmarks and risks. Queries use only the generic problem wording.
               </p>
               <div className="flex flex-wrap items-center gap-3">
-                <Button onClick={runResearch} disabled={loading}>Run research</Button>
-                <Button variant="secondary" onClick={generateOptions} disabled={loading}>Skip and generate options</Button>
+                <Button onClick={runResearch} disabled={loading}>
+                  {loadingFor("Researching the web…") ? "Researching…" : "Run research"}
+                </Button>
+                <Button variant="secondary" onClick={generateOptions} disabled={loading}>
+                  {loadingFor("Generating options…") ? "Generating…" : "Skip and generate options"}
+                </Button>
               </div>
               {research && (
                 <div className="space-y-2">
@@ -287,9 +317,17 @@ export default function DashboardPage() {
                     <span>{research.findings?.length ?? 0} findings</span>
                     <span>{research.sources?.length ?? 0} sources</span>
                   </div>
-                  <Progress value={Math.round(research.coverage * 100)} />
+                  <Progress value={Math.round((research.coverage || 0) * 100)} />
+                  {loadingFor("Researching the web…") && <Progress value={40} />}
                   {research.message && <p className="text-sm text-amber-600">{research.message}</p>}
-                  <Button onClick={generateOptions} disabled={loading}>Generate options</Button>
+                  {research.page_errors && research.page_errors.length > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      Skipped {research.page_errors.length} page(s): {research.page_errors.slice(0, 3).join(", ")}
+                    </p>
+                  )}
+                  <Button onClick={generateOptions} disabled={loading}>
+                    {loadingFor("Generating options…") ? "Generating…" : "Generate options"}
+                  </Button>
                 </div>
               )}
             </CardContent>
@@ -325,7 +363,9 @@ export default function DashboardPage() {
                 </div>
               ))}
               <div className="flex gap-2">
-                <Button onClick={updateRatings} disabled={loading || options.length === 0}>Update ratings and decide</Button>
+                <Button onClick={updateRatings} disabled={loading || options.length === 0}>
+                  {loadingFor("Scoring options…") ? "Scoring…" : "Update ratings and decide"}
+                </Button>
                 <Button variant="outline" onClick={() => setStep("research")}>Back</Button>
               </div>
             </CardContent>
@@ -351,7 +391,9 @@ export default function DashboardPage() {
                 </div>
                 <p className="text-sm">{decision.reason}</p>
                 {decision.tie && <p className="text-sm font-medium text-amber-600">Human decision required: the top two options are tied.</p>}
-                <Button onClick={downloadDeck} disabled={loading}>Download briefing.pptx</Button>
+                <Button onClick={downloadDeck} disabled={loading}>
+                  {loadingFor("Building deck…") ? "Building…" : "Download briefing.pptx"}
+                </Button>
               </CardContent>
             </Card>
 
