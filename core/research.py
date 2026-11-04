@@ -47,6 +47,12 @@ def model_name():
     return (os.getenv(f"{prefix}_MODEL") or "").strip() or None
 
 
+def current_provider_and_model(cfg=None):
+    """Return (provider, model) for the selected provider."""
+    name, provider = _provider()
+    return name, (model_name() if provider else None)
+
+
 def research(topic, summary_lines, cfg=None):
     name, provider = _provider()
     if not provider:

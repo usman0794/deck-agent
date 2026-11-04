@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
-from core import auth
+from core import auth, research
 from service import workflow
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -89,6 +89,16 @@ async def _value_error_handler(request, exc):
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/v1/models")
+def list_models(_user=Depends(get_current_user)):
+    """OpenAI-style model list for clients that probe /v1/models."""
+    name, model = research.current_provider_and_model(CFG)
+    if not model:
+        return {"object": "list", "data": []}
+    return {"object": "list",
+            "data": [{"id": model, "object": "model", "owned_by": name or "unknown"}]}
 
 
 @app.post("/auth/login")

@@ -39,6 +39,22 @@ curl http://localhost:8000/health
 
 Response: `{"status": "ok"}`
 
+### GET /v1/models
+
+OpenAI-style model list for clients that probe `/v1/models`.
+
+```bash
+curl http://localhost:8000/v1/models
+```
+
+Response:
+
+```json
+{"object": "list", "data": [{"id": "LongCat-2.0", "object": "model", "owned_by": "longcat"}]}
+```
+
+The `id` is the model from `.env` (`GROQ_MODEL` / `LONGCAT_MODEL`) and `owned_by` is the selected provider.
+
 ## Session states
 
 ```
