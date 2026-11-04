@@ -86,6 +86,11 @@ async def _value_error_handler(request, exc):
                   detail.get("findings"), status)
 
 
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
 @app.post("/auth/login")
 def login(req: LoginRequest):
     ok, role = auth.authenticate(req.username, req.password)
