@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { api, clearToken, getToken, type SessionResponse } from "@/lib/api";
+import { api, clearToken, getToken, type DataSource, type SessionResponse } from "@/lib/api";
 import type { Decision, Finding, Option, Question, ResearchResult, UserIntent } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -56,6 +56,7 @@ export default function DashboardPage() {
   const [step, setStep] = useState<Step>("data");
   const [sessionId, setSessionId] = useState<string>("");
   const [dataStatus, setDataStatus] = useState<string>("");
+  const [dataSource, setDataSource] = useState<DataSource | null>(null);
   const [problemText, setProblemText] = useState("");
   const [intent, setIntent] = useState<UserIntent | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -84,6 +85,7 @@ export default function DashboardPage() {
     setSessionId(s.id);
     localStorage.setItem("bdauth_session", s.id);
     setDataStatus(s.status === "created" ? "" : "data_loaded");
+    setDataSource(s.profile?.source ?? null);
     setProblemText(s.user_text || "");
     if (s.intent) setIntent(s.intent);
     if (s.research) setResearch(s.research);
@@ -142,6 +144,7 @@ export default function DashboardPage() {
     localStorage.removeItem("bdauth_session");
     setSessionId("");
     setDataStatus("");
+    setDataSource(null);
     setProblemText("");
     setIntent(null);
     setQuestions([]);
@@ -171,6 +174,7 @@ export default function DashboardPage() {
     await run("Uploading data…", async () => {
       const s = await api.uploadData(sessionId, file);
       setDataStatus(s.status);
+      setDataSource(s.profile?.source ?? null);
       setStep("problem");
     });
   }
@@ -179,7 +183,19 @@ export default function DashboardPage() {
     await run("Scraping page…", async () => {
       const s = await api.scrape(sessionId, scrapeUrl, scrapeSelector);
       setDataStatus(s.status);
+      setDataSource(s.profile?.source ?? null);
       setStep("problem");
+    });
+  }
+
+  async function removeData() {
+    await run("Removing data…", async () => {
+      await api.removeData(sessionId);
+      setDataStatus("");
+      setDataSource(null);
+      setProblemText("");
+      setIntent(null);
+      setStep("data");
     });
   }
 
@@ -303,25 +319,58 @@ export default function DashboardPage() {
         )}
 
         {step === "data" && (
-          <Card>
-            <CardHeader><CardTitle>Load your data</CardTitle></CardHeader>
-            <CardContent className="space-y-6">
-              <div className="space-y-2">
-                <Label htmlFor="file">Upload CSV, Excel or JSON</Label>
-                <Input id="file" type="file" accept=".csv,.xlsx,.xls,.json" disabled={loading}
-                  onChange={(e) => e.target.files?.[0] && uploadFile(e.target.files[0])} />
-              </div>
-              <div className="flex items-center gap-3 text-sm text-muted-foreground"><span>or scrape a page</span></div>
-              <div className="grid gap-3 sm:grid-cols-[1fr_160px_auto]">
-                <Input placeholder="https://example.com" value={scrapeUrl} onChange={(e) => setScrapeUrl(e.target.value)} />
-                <Input placeholder="table tr" value={scrapeSelector} onChange={(e) => setScrapeSelector(e.target.value)} />
-                <Button variant="secondary" onClick={scrapePage} disabled={loading || !scrapeUrl}>
-                  {loadingFor("Scraping page…") ? "Scraping…" : "Scrape"}
-                </Button>
-              </div>
-              {dataStatus && <Badge>{dataStatus}</Badge>}
-            </CardContent>
-          </Card>
+          <div className="space-y-4">
+            {dataStatus && (
+              <Card>
+                <CardContent className="flex items-center justify-between gap-4 p-4">
+                  <div>
+                    <p className="text-sm font-medium">Data loaded</p>
+                    <p className="text-xs text-muted-foreground">
+                      {dataSource?.type === "upload" && `File: ${String(dataSource.filename)}`}
+                      {dataSource?.type === "scrape" &&
+                        `Scraped: ${String(dataSource.url)} (${String(dataSource.selector)})`}
+                    </p>
+                  </div>
+                  <Button variant="outline" onClick={removeData} disabled={loading}>
+                    {loadingFor("Removing data…") ? "Removing…" : "Remove data"}
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
+            <Card>
+              <CardHeader><CardTitle>Load your data</CardTitle></CardHeader>
+              <CardContent className="space-y-6">
+                <div className="space-y-2">
+                  <Label htmlFor="file">Upload CSV, Excel or JSON</Label>
+                  <Input id="file" type="file" accept=".csv,.xlsx,.xls,.json" disabled={loading}
+                    onChange={(e) => e.target.files?.[0] && uploadFile(e.target.files[0])} />
+                </div>
+                <div className="flex items-center gap-3 text-sm text-muted-foreground"><span>or scrape a page</span></div>
+                <div className="space-y-3">
+                  <div className="grid gap-3 sm:grid-cols-[1fr_160px_auto]">
+                    <Input placeholder="https://example.com" value={scrapeUrl}
+                      onChange={(e) => setScrapeUrl(e.target.value)} />
+                    <Input placeholder="table tr" value={scrapeSelector}
+                      onChange={(e) => setScrapeSelector(e.target.value)} />
+                    <Button variant="secondary" onClick={scrapePage} disabled={loading || !scrapeUrl}>
+                      {loadingFor("Scraping page…") ? "Scraping…" : "Scrape"}
+                    </Button>
+                  </div>
+                  <select
+                    value={scrapeSelector}
+                    onChange={(e) => setScrapeSelector(e.target.value)}
+                    className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                  >
+                    <option value="table tr">Table rows — table tr</option>
+                    <option value="h2">Section headings — h2</option>
+                    <option value="li">Lists and cards — li</option>
+                    <option value="p">Paragraphs — p</option>
+                  </select>
+                </div>
+                {dataStatus && <Badge>{dataStatus}</Badge>}
+              </CardContent>
+            </Card>
+          </div>
         )}
 
         {step === "problem" && (

@@ -45,6 +45,7 @@ export const docsNav: DocsNavSection[] = [
       { label: "Security & Privacy", slug: "security" },
       { label: "FAQ & Troubleshooting", slug: "faq" },
       { label: "Developer Guide", slug: "developer-guide" },
+      { label: "Test Plan", slug: "test-plan" },
     ],
   },
 ];

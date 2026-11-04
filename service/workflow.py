@@ -62,6 +62,7 @@ def upload_data(session_id, file_bytes, filename):
     session.data_ref = str(data_path.relative_to(ROOT))
     df = _load_df(session)
     session.profile = understand.profile_data(df)
+    session.profile["source"] = {"type": "upload", "filename": filename}
     session.status = "data_loaded"
     session.updated_at = _now()
     STORE.save(session)
@@ -73,7 +74,22 @@ def scrape_data(session_id, url, selector="table tr"):
     from core import scraper
     df = scraper.scrape(url, selector)
     csv_bytes = df.to_csv(index=False).encode("utf-8-sig")
-    return upload_data(session_id, csv_bytes, "scraped.csv")
+    session = upload_data(session_id, csv_bytes, "scraped.csv")
+    session = _get(session_id)
+    session.profile["source"] = {"type": "scrape", "url": url, "selector": selector}
+    STORE.save(session)
+    return session.to_dict()
+
+
+def remove_data(session_id):
+    """Clear the uploaded/scraped data and reset the session to created."""
+    session = _get(session_id)
+    session.data_ref = None
+    session.profile = {}
+    session.status = "created"
+    session.updated_at = _now()
+    STORE.save(session)
+    return session.to_dict()
 
 
 def submit_problem(session_id, text):

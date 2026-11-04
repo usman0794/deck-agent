@@ -86,6 +86,11 @@ async def _value_error_handler(request, exc):
                   detail.get("findings"), status)
 
 
+@app.delete("/sessions/{session_id}/data")
+def remove_data(session_id: str, _user=Depends(get_current_user)):
+    return workflow.remove_data(session_id)
+
+
 @app.get("/sessions/{session_id}")
 def get_session(session_id: str, _user=Depends(get_current_user)):
     return workflow._get(session_id).to_dict()

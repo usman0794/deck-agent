@@ -105,4 +105,5 @@ The agent can search the web for good practices, causes, benchmarks and risks. C
 - If a selector matches nothing, the scraper extracts the page's headings, paragraphs and list items instead. Use `table tr` for real tables.
 - The scraper only fetches pages your machine can reach. Respect each site's terms and robots.txt.
 - The deck is built before download, so `briefing.pptx` is always a valid file.
+- For testing, see `docs/test-plan.md` — data schemas, tough questions and expected observations.
 - For production use, put the API behind HTTPS and consider SSO.

@@ -45,6 +45,13 @@ interface OptionsResponse { status: string; options: Option[] }
 interface SourcesResponse { status: string; sources: Source[] }
 interface AuditResponse { status: string; findings: unknown[] }
 
+export interface DataSource {
+  type: "upload" | "scrape";
+  filename?: string;
+  url?: string;
+  selector?: string;
+}
+
 export interface SessionResponse {
   id: string;
   status: string;
@@ -58,7 +65,7 @@ export interface SessionResponse {
   research: ResearchResult | null;
   check: { why_not: Record<string, string>; tie: boolean; evidence_strength: number } | null;
   deck_path: string | null;
-  profile: { rows: number; columns: Record<string, unknown> } | null;
+  profile: { rows: number; columns: Record<string, unknown>; source?: DataSource | null } | null;
   questions_asked: string[];
   questions_answered: Record<string, string>;
 }
@@ -73,14 +80,16 @@ export const api = {
   uploadData: (sessionId: string, file: File) => {
     const form = new FormData();
     form.append("file", file);
-    return request<DataResponse>(`/sessions/${sessionId}/data`, { method: "POST", body: form });
+    return request<SessionResponse>(`/sessions/${sessionId}/data`, { method: "POST", body: form });
   },
   scrape: (sessionId: string, url: string, selector: string) => {
     const form = new FormData();
     form.append("url", url);
     form.append("selector", selector);
-    return request<DataResponse>(`/sessions/${sessionId}/scrape`, { method: "POST", body: form });
+    return request<SessionResponse>(`/sessions/${sessionId}/scrape`, { method: "POST", body: form });
   },
+  removeData: (sessionId: string) =>
+    request<{ status: string }>(`/sessions/${sessionId}/data`, { method: "DELETE" }),
   submitProblem: (sessionId: string, text: string) =>
     request<ProblemResponse>(`/sessions/${sessionId}/problem`, {
       method: "POST",
