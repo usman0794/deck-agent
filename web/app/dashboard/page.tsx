@@ -164,6 +164,9 @@ export default function DashboardPage() {
   }
 
   async function downloadDeck() {
+    await run("Building deck…", async () => {
+      await api.buildDeck(sessionId);
+    });
     const url = api.getDeckUrl(sessionId);
     const token = getToken();
     const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });

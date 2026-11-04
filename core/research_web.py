@@ -21,6 +21,8 @@ UA = "BriefingDeckAgent/1.0 (research bot; +https://example.com/bot)"
 MAX_HTML = 1_000_000
 INJECTION_PHRASES = ("ignore previous", "ignore all previous", "disregard previous",
                      "system prompt", "you are now", "new instructions")
+LOW_QUALITY_WORDS = ("maintenance", "offline", "error", "404", "not found",
+                     "scheduled", "temporarily", "access denied")
 
 
 class ResearchError(RuntimeError):
@@ -230,6 +232,11 @@ def _flag_injection(text):
     return any(p in lower for p in INJECTION_PHRASES)
 
 
+def _is_low_quality(claim):
+    text = (claim or "").lower()
+    return len(text) < 20 or any(w in text for w in LOW_QUALITY_WORDS)
+
+
 def extract_findings(text, url, title, cfg, counter):
     """Ask the model for up to 3 findings from one page."""
     if counter[0] >= int(_cfg_research(cfg).get("max_model_calls", 25)):
@@ -394,14 +401,39 @@ def research(problem, problem_type, columns, cfg, use_ai=False, group_values=Non
             title = page.get("title") or url
             page_findings, flagged = extract_findings(text, url, title, cfg, counter)
             kept, dropped = verify_findings(page_findings, text)
-            result["kept"] += len(kept); result["dropped"] += dropped
+            before = len(kept)
+            kept = [f for f in kept if not _is_low_quality(f.get("claim"))]
+            result["dropped"] += dropped + (before - len(kept))
+            result["kept"] += len(kept)
             findings.extend(kept)
             for f in kept:
-                sources[f["id"]] = {"title": f["title"], "url": f["source_url"],
-                                    "retrieved_date": f["retrieved_date"]}
+                url_key = f.get("source_url", "")
+                sources.setdefault(url_key, {"title": f.get("title") or url_key,
+                                             "url": url_key,
+                                             "retrieved_date": f.get("retrieved_date", "")})
+        # deduplicate findings by claim text
+        unique_findings, seen_claims = [], set()
+        for f in findings:
+            claim = (f.get("claim") or "").strip().lower()
+            if claim and claim not in seen_claims:
+                seen_claims.add(claim)
+                unique_findings.append(f)
+        findings = unique_findings
         themes, coverage = synthesize(findings, result["queries"], cfg, counter)
-        result["themes"] = themes; result["findings"] = findings
-        result["sources"] = [{"id": sid, **v} for sid, v in sources.items()]
+        # rebuild the source list from the findings that survived
+        unique_sources = {}
+        for f in findings:
+            url_key = f.get("source_url", "")
+            unique_sources.setdefault(url_key, {"title": f.get("title") or url_key,
+                                                "url": url_key,
+                                                "retrieved_date": f.get("retrieved_date", "")})
+        url_to_number = {url: i + 1 for i, url in enumerate(unique_sources.keys())}
+        finding_source_map = {f["id"]: url_to_number.get(f.get("source_url", ""), 0)
+                              for f in findings}
+        result["themes"] = themes
+        result["findings"] = findings
+        result["sources"] = [{"number": i + 1, **v} for i, v in enumerate(unique_sources.values())]
+        result["finding_source_map"] = finding_source_map
         result["coverage"] = coverage
         result["model_calls"] = counter[0]
         result["page_errors"] = page_errors

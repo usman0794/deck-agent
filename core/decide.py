@@ -105,7 +105,9 @@ def _decorate_options(options, analysis, problem, direction, group_col, research
         name = o.get("name", "")
         prefix = next((p for p in theme_for if name.startswith(p)), "")
         theme = theme_for.get(prefix, "good_practices")
-        o["evidence_ids"] = list(themes.get(theme, []))[:2]
+        source_map = (research_result or {}).get("finding_source_map", {})
+        o["evidence_ids"] = list(dict.fromkeys(
+            str(source_map.get(fid, fid)) for fid in themes.get(theme, [])))[:2]
         o["expected_effect"] = f"estimate: {o.get('est_effect', 'n/a')}"
         target = analysis["top"] if direction == "reduce" else analysis["low"]
         if name.startswith("Target"):

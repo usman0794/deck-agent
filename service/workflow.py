@@ -301,7 +301,7 @@ def get_decision(session_id):
 
 def build_deck(session_id, template_bytes=None):
     session = _get(session_id)
-    if session.status not in ("options_ready", "decided"):
+    if session.status not in ("options_ready", "decided", "deck_ready"):
         return _error("NO_DECISION", "No decision to build")
     df = _load_df(session)
     result = analyze.analyze(df, session.intent.get("metric"), session.intent.get("group"))

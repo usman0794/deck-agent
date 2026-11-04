@@ -289,6 +289,39 @@ def test_deck_sources_and_notes(monkeypatch):
         assert notes.strip(), f"slide {idx + 1} has no notes"
 
 
+def test_research_dedupes_sources_and_filters_low_quality(monkeypatch):
+    _research_setup(monkeypatch)
+    PAGES["https://example.com/lowq"] = {
+        "title": "LowQ Page",
+        "text": ("The website is temporarily offline for scheduled maintenance. "
+                 "Teams that pre-approve overtime budgets reduce unplanned overtime."),
+    }
+    monkeypatch.setattr(research_web, "get_search_provider",
+                        lambda cfg: FakeProvider([{"title": "LowQ",
+                                                   "url": "https://example.com/lowq",
+                                                   "snippet": ""}]))
+
+    def model(prompt, cfg=None, max_tokens=None):
+        if "<<<PAGE_TEXT>>>" in prompt:
+            return {"findings": [
+                {"claim": "The website is temporarily offline for scheduled maintenance.",
+                 "supporting_snippet": "temporarily offline for scheduled maintenance"},
+                {"claim": "Pre-approval reduces unplanned overtime.",
+                 "supporting_snippet": "pre-approve overtime budgets reduce unplanned overtime"},
+            ]}
+        return {"questions": ["What causes overtime?", "What good practices exist?"]}
+
+    monkeypatch.setattr(research, "complete_json", model)
+    result = research_web.research("Reduce overtime cost", "improve",
+                                   ["overtime_hours"], _cfg(), use_ai=False)
+    claims = [f["claim"].lower() for f in result["findings"]]
+    assert not any("maintenance" in c or "offline" in c for c in claims)
+    assert any("pre-approval" in c for c in claims)
+    urls = [s["url"] for s in result["sources"]]
+    assert len(urls) == len(set(urls))
+    assert all(n > 0 for n in result["finding_source_map"].values())
+
+
 def test_service_run_research(monkeypatch):
     _research_setup(monkeypatch)
     monkeypatch.setattr(research_web, "get_search_provider",

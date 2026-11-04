@@ -36,7 +36,7 @@ def make_agent_plan(agent, org, cfg):
     findings = research.get("findings", [])
     sources = research.get("sources", [])
     themes = research.get("themes", {})
-    coverage = research.get("coverage", 0.0)
+    coverage = min(1.0, research.get("coverage", 0.0))
     status = research.get("status", "ok")
     has_research = bool(findings)
     findings_map = {f["id"]: f for f in findings}
@@ -63,19 +63,34 @@ def make_agent_plan(agent, org, cfg):
         [problem, f"Type: {problem_type}", f"Goal: {goal} {metric}", f"Group: {group}",
          f"Constraints: {constraints}", "Assumptions: estimates are directional, not exact."])
     add("data", "bullets", "What the data shows",
-        [ds.get("about", ""), f"Rows: {result.get('rows', 0)}",
+        [ds.get("about", ""),
+         f"Rows: {result.get('rows', 0)}",
+         f"Total {metric}: {fmt(result.get('total', 0))}",
+         f"Top {group}: {result.get('top', '')}",
+         f"Lowest {group}: {result.get('low', '')}",
          f"Quality: {', '.join(ds.get('quality_notes', [])) or 'no major issues'}",
          f"Trend: {result.get('trend') or 'no date column'}"])
     add("chart", "chart", f"{metric} by {group}")
 
     if has_research:
-        theme_lines = [f"{theme.replace('_', ' ').title()}: {len(ids)} finding(s)"
-                       for theme, ids in themes.items() if ids]
+        source_map = research.get("finding_source_map", {})
+        theme_lines = []
+        for theme, ids in themes.items():
+            if not ids:
+                continue
+            claim = findings_map.get(ids[0], {}).get("claim", "")
+            number = source_map.get(ids[0], "?")
+            label = theme.replace("_", " ").title()
+            theme_lines.append(f"{label}: {claim} [{number}]" if claim else f"{label}: {len(ids)} finding(s)")
         add("research", "bullets", "What outside research found",
             theme_lines + [f"Coverage: {coverage:.0%} of sub-questions"],
             notes="Verified findings only; untrusted page text was not used.")
-        practice = [f"[{fid}] {findings_map[fid]['claim']}"
-                    for fid in (themes.get("good_practices", []) + themes.get("benchmarks", []))[:4]]
+        practice = []
+        for fid in (themes.get("good_practices", []) + themes.get("benchmarks", [])):
+            claim = findings_map.get(fid, {}).get("claim", "")
+            practice.append(f"[{source_map.get(fid, '?')}] {claim}")
+            if len(practice) >= 6:
+                break
         add("good_practices", "bullets", "Good practices and benchmarks found", practice,
             notes="Every claim carries its source number.")
     else:
@@ -125,7 +140,7 @@ def make_agent_plan(agent, org, cfg):
          "Review: weekly", "Review dates: 30, 60, 90 days"])
     if has_research:
         add("sources", "sources", "Sources",
-            [f"[{i + 1}] {s.get('title', '')} - "
+            [f"[{s.get('number', i + 1)}] {s.get('title', '')} - "
              f"{urllib.parse.urlparse(s.get('url', '')).netloc or s.get('url', '')} - "
              f"{s.get('retrieved_date', '')}"
              for i, s in enumerate(sources)],

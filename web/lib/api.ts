@@ -90,6 +90,7 @@ export const api = {
       body: JSON.stringify({ option_ratings: optionRatings, weights }),
     }),
   getDecision: (sessionId: string) => request<Decision>(`/sessions/${sessionId}/decision`),
+  buildDeck: (sessionId: string) => request(`/sessions/${sessionId}/deck`, { method: "POST" }),
   getSources: (sessionId: string) => request<SourcesResponse>(`/sessions/${sessionId}/sources`),
   getAudit: (sessionId: string) => request<AuditResponse>(`/sessions/${sessionId}/audit`),
   getDeckUrl: (sessionId: string) => `${API_URL}/sessions/${sessionId}/deck.pptx`,
