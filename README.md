@@ -92,11 +92,17 @@ The agent can search the web for good practices, causes, benchmarks and risks. C
 "research": { "max_seconds": 120, "max_model_calls": 25, "max_queries": 6, "max_pages": 10 }
 ```
 
-`ddgs` needs no key. A key-based provider reads the env var named in config. Queries use only the generic problem wording — never group names, row values, file names or PII.
+- `ddgs` (DuckDuckGo) needs no key. A key-based provider reads the env var named in config.
+- Queries use only the generic problem wording — never group names, row values, file names or PII.
+- Sources are deduplicated by URL and numbered; findings reference those numbers.
+- Low-quality claims (maintenance/offline/error/outage text) are filtered out.
+- Pages skipped by robots.txt, timeouts or HTTP errors are reported in the UI.
+- AI calls time out after 30 s; every AI step has a rule-based fallback.
 
 ## Notes
 
 - The API is stateless per session; sessions are stored in `sessions/` (file store) or memory (`SESSION_STORE=memory`).
 - If a selector matches nothing, the scraper extracts the page's headings, paragraphs and list items instead. Use `table tr` for real tables.
 - The scraper only fetches pages your machine can reach. Respect each site's terms and robots.txt.
+- The deck is built before download, so `briefing.pptx` is always a valid file.
 - For production use, put the API behind HTTPS and consider SSO.

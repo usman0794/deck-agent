@@ -29,6 +29,16 @@ Response:
 
 Send the token as `Authorization: Bearer <token>` on all other endpoints. Auth is pluggable: set `auth_required` in `config.json` to enforce it.
 
+### GET /health
+
+Health probe.
+
+```bash
+curl http://localhost:8000/health
+```
+
+Response: `{"status": "ok"}`
+
 ## Session states
 
 ```
@@ -82,7 +92,11 @@ Returned by `GET /sessions/{id}/decision`.
   ],
   "best": 0,
   "reason": "Target West leads Copy East on lower cost, lower risk, speed.",
-  "confidence": {"label": "High", "wins": 5, "total": 6, "alternative": null},
+  "confidence": {"label": "High", "wins": 5, "total": 6, "alternative": null,
+                 "evidence_strength": 2},
+  "why_not": {"1": "Copy East loses on lower cost, lower risk, speed."},
+  "tie": false,
+  "evidence_strength": 2,
   "findings": []
 }
 ```
@@ -177,7 +191,7 @@ curl http://localhost:8000/sessions/<id>/decision
 
 ### POST /sessions/{id}/deck
 
-Build the deck. Optionally upload a branded `.pptx` template.
+Build the deck. **Call this before downloading.** Optionally upload a branded `.pptx` template.
 
 ```bash
 curl -X POST http://localhost:8000/sessions/<id>/deck
@@ -185,7 +199,7 @@ curl -X POST http://localhost:8000/sessions/<id>/deck
 
 ### GET /sessions/{id}/deck.pptx
 
-Download the built deck.
+Download the built deck. Always call `POST /deck` first; otherwise this returns `404`.
 
 ```bash
 curl -OJ http://localhost:8000/sessions/<id>/deck.pptx
@@ -207,12 +221,41 @@ Run external deep research (search, fetch, extract, verify). Returns themes, fin
 curl -X POST http://localhost:8000/sessions/<id>/research
 ```
 
+Response:
+
+```json
+{
+  "status": "ok",
+  "themes": {"causes": ["F1"], "good_practices": ["F2"], "benchmarks": [], "risks": []},
+  "findings": [{"id": "F1", "claim": "...", "source_url": "https://...",
+                "title": "...", "retrieved_date": "2026-11-04", "supporting_snippet": "..."}],
+  "sources": [{"number": 1, "title": "...", "url": "https://...", "retrieved_date": "2026-11-04"}],
+  "coverage": 1.0,
+  "message": "",
+  "kept": 4,
+  "dropped": 2,
+  "model_calls": 3,
+  "page_errors": []
+}
+```
+
+- Sources are deduplicated by URL and numbered; findings reference those numbers.
+- Findings whose snippet is not found in the page are dropped.
+- `page_errors` lists pages skipped by robots.txt, timeouts or HTTP errors.
+- If research is unavailable or partial, the deck says so and falls back to data-only options.
+
 ### GET /sessions/{id}/sources
 
 Return the verified sources found for the session.
 
 ```bash
 curl http://localhost:8000/sessions/<id>/sources
+```
+
+Response:
+
+```json
+{"status": "researched", "sources": [{"number": 1, "title": "...", "url": "https://...", "retrieved_date": "2026-11-04"}]}
 ```
 
 ## Authentication

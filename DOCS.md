@@ -130,7 +130,7 @@ Notes:
 
 - `AI_PROVIDER` must be `groq` or `longcat`. If it is missing, the AI checkbox is disabled and the AI step reports what to set.
 - `GROQ_MODEL` / `LONGCAT_MODEL` select the model for each provider.
-- `.env` is git-ignored and is never included in the offline kit.
+- `.env` is git-ignored and never committed.
 
 ### 5.2 `config.json`
 
@@ -138,10 +138,19 @@ Notes:
 {
   "organisation": "Your Organisation",
   "theme": { "primary": "01411C" },
-  "slides": { "summary": true, "key_figures": true, "chart": true, "table": false, "actions": true },
+  "slides": {
+    "executive_summary": true, "problem": true, "data": true, "chart": true,
+    "research": true, "good_practices": true, "solutions": true, "comparison": true,
+    "criteria": true, "scores": true, "robustness": true, "recommendation": true,
+    "roadmap": true, "risks": true, "kpis": true, "sources": true,
+    "key_figures": false, "table": false
+  },
+  "max_slides": 18,
   "max_chart_items": 6,
   "table_rows": 8,
-  "table_cols": 6
+  "table_cols": 6,
+  "search": { "provider": "ddgs", "env_var": "SEARCH_API_KEY", "base_url": "https://api.example.com/search" },
+  "research": { "max_seconds": 120, "max_model_calls": 25, "max_queries": 6, "max_pages": 10, "max_results": 5, "cache_dir": "cache" }
 }
 ```
 
@@ -149,13 +158,15 @@ Notes:
 |---|---|
 | `organisation` | Default organisation shown on the title slide |
 | `theme.primary` | Hex colour for slide titles and charts (no `#`) |
-| `slides.summary` | Include the Summary slide |
-| `slides.key_figures` | Include the Key figures slide |
-| `slides.chart` | Include the chart slide |
-| `slides.table` | Include the data table slide |
-| `slides.actions` | Include the Recommended actions slide |
+| `slides.*` | Toggle each slide; `max_slides` caps the deck at 18 |
 | `max_chart_items` | Maximum categories shown in the chart |
 | `table_rows` / `table_cols` | Data table size limits |
+| `search.provider` | `ddgs` (no key) or `key` (key-based provider) |
+| `search.env_var` | Env var that holds the search key when `provider` is `key` |
+| `research.max_seconds` | Total research time budget (default 120 s) |
+| `research.max_model_calls` | AI call cap for research (default 25) |
+| `research.max_queries` / `max_pages` | Search query / page fetch caps |
+| `research.cache_dir` | Folder for the fetched-page cache (`cache/`) |
 
 ---
 
@@ -174,8 +185,8 @@ Edit `access.json` to add users. Passwords are plain text; the role is optional.
 }
 ```
 
-- `role: admin` — full access, including the AI step and the offline-kit download.
-- `role: viewer` — can load data, draft/edit the plan and download the deck, but cannot use the AI step or download the offline kit.
+- `role: admin` — full access, including the AI step and research.
+- `role: viewer` — can load data, draft/edit the plan and download the deck, but cannot use the AI step or research.
 - Changes take effect immediately; the file is read on every sign-in and session restore.
 - `access.json` is git-ignored because it contains plain passwords. Use `access.example.json` as the template.
 
@@ -257,20 +268,22 @@ Good test pages:
 
 ## 9. Downloads
 
-| Where | Button | File |
+| Where | Action | File |
 |---|---|---|
 | Decision step | Download deck | `briefing.pptx` |
-| API | `GET /sessions/{id}/deck.pptx` | `briefing.pptx` |
+| API | `POST /sessions/{id}/deck` then `GET /sessions/{id}/deck.pptx` | `briefing.pptx` |
 | CLI | `--out briefing.pptx` | `briefing.pptx` |
 
-The deck contains up to 18 slides: title, executive summary, problem, data, chart, research findings, good practices, three solutions, comparison, criteria, robustness, recommendation, roadmap, risks, KPIs and sources. Speaker notes carry the reasoning on slides 2, 6, 8–10, 13 and 14.
+The UI and API **build the deck before downloading**; calling `GET` before `POST` returns `404`.
+
+The deck contains up to 18 slides: title, executive summary, problem, data, chart, research findings, good practices, three solutions, comparison, criteria, robustness, recommendation, roadmap, risks, KPIs and sources. Sources are deduplicated by URL and numbered; findings reference those numbers. Speaker notes carry the reasoning on slides 2, 6, 8–10, 13 and 14.
 
 ---
 
 ## 10. Offline CLI
 
 ```powershell
-python cli.py data.csv --topic "Expand bus fleet" --org "My Team" --out briefing.pptx
+python cli.py data.csv --text "we pay too much overtime and HR needs a plan next month" --out briefing.pptx
 ```
 
 Options:
@@ -278,20 +291,21 @@ Options:
 | Option | Meaning |
 |---|---|
 | `data` | Path to CSV / Excel / JSON |
-| `--topic` | Decision or topic (default `Briefing`) |
+| `--text` | Describe the situation in plain words |
+| `--answers` | JSON file or inline JSON with answers to clarifying questions |
+| `--topic` / `--goal` / `--metric` / `--category` | Optional overrides |
 | `--org` | Organisation (defaults to `config.json`) |
-| `--config` | Alternate config path |
-| `--template` | Branded `.pptx` template |
-| `--ai` | Add AI-drafted context and actions |
+| `--use-ai` | Use AI for option wording (requires a key) |
+| `--research` / `--no-research` | Run external research (default on when a search provider is available) |
 | `--out` | Output path (default `briefing.pptx`) |
 
-The CLI has no sign-in and no UI. It uses the same `.env` settings for the AI step.
+The CLI calls the service layer, so it exercises the same workflow as the API.
 
 ---
 
-## 11. Tab persistence
+## 11. Frontend flow
 
-The active tab is stored in the URL as `?tab=...`. Refreshing the page keeps you on the same tab. Only the selected tab is rendered.
+The Next.js UI (`web/`) walks through five steps: **Data → Problem → Research → Options → Decision**. Each step calls the API; the decision step builds the deck before downloading. Loading banners and button states show progress, and research shows page errors when pages are skipped.
 
 ---
 
@@ -332,17 +346,28 @@ PROVIDERS = {
 - `GROQ_MODEL` / `LONGCAT_MODEL` select the model.
 - `AI_MAX_TOKENS` sets `max_tokens` (default 2000).
 - `research.complete_json()` is a shared helper for AI JSON calls; `ai_options()` requests three scored options.
-- Every AI step has a rule-based fallback, so the app works with no key and no network.
+- AI calls time out after **30 s**; every AI step has a rule-based fallback, so the app works with no key and no network.
+
+### `core.research_web` details
+
+- Search providers: `ddgs` (DuckDuckGo, no key) or `key` (generic key-based provider configured in `config.json`).
+- Queries are sanitised: column names, group values, file names and PII-like tokens are removed.
+- Fetched pages are untrusted: snippets must appear in the page, claims must share key terms with the snippet, and prompt-injection phrases are flagged.
+- Sources are deduplicated by URL and numbered; findings reference those numbers.
+- Low-quality claims (maintenance/offline/error/outage text) are dropped.
+- `page_errors` lists pages skipped by robots.txt, timeouts or HTTP errors.
+- Limits: 25 model calls, 120 s, 6 queries, 10 pages; exceeding them returns `partial`.
 
 ---
 
 ## 13. Security notes
 
-- `.env`, `.auth_secret`, `users.json` and generated `.pptx` files should not be shared or committed.
-- Passwords are PBKDF2 hashes, not plaintext.
+- `.env`, `.auth_secret`, `access.json`, `users.json`, `cache/`, `sessions/`, `session_data/` and generated `.pptx` files should not be shared or committed.
+- Passwords in `access.json` are plain text; `users.json` holds PBKDF2 hashes.
 - Session cookies are HMAC-signed and expiring.
-- For production, put the app behind HTTPS and consider SSO.
-- The scraper only fetches pages your machine can reach; respect each site's terms and `robots.txt`.
+- For production, put the API behind HTTPS and consider SSO.
+- The scraper only fetches pages your machine can reach, blocks private/local IPs (SSRF), respects `robots.txt`, and honours timeouts and size caps.
+- Research queries are sanitised: column names, group values, file names and PII-like tokens are removed before searching.
 
 ---
 
@@ -356,6 +381,9 @@ PROVIDERS = {
 | Scrape says "no table" | Page has no `<table>` | Use `h2`, `li`, or accept the page-text fallback |
 | Scrape returns almost nothing | Page is JavaScript-rendered | Use the site's export/API or copy the data |
 | CSV tokenizing error | Wrong delimiter or ragged rows | The loader sniffs delimiters and skips bad rows; check the file |
+| Downloaded `briefing.pptx` won't open | `GET /deck.pptx` called before `POST /deck` | The UI builds first; via API call `POST /sessions/{id}/deck` before downloading |
+| Research shows `partial` / skipped pages | robots.txt, timeouts or HTTP 429 | Wait and retry; the deck falls back to data-only options |
+| AI step hangs | Provider is slow or unreachable | AI calls time out after 30 s and fall back to rules |
 | Port already in use | Another API/frontend process | Stop it or run with `--port 8001` / `-p 3001` |
 
 ---
@@ -374,6 +402,12 @@ PROVIDERS = {
 
 ## 16. Changelog (recent)
 
+- Fixed the deck download: the UI now builds the deck before fetching it, so `briefing.pptx` is always a valid file.
+- Deduplicated research sources by URL, numbered them and mapped evidence IDs to those numbers.
+- Filtered low-quality research claims (maintenance/offline/error/outage) and capped coverage at 100%.
+- Made the deck richer: data totals and top/lowest groups, actual research findings per theme, good practices with source numbers.
+- Added research loading states, page-error reporting and 30 s AI timeouts.
+- Added `GET /health`.
 - Replaced Streamlit with a Next.js + Tailwind CSS + shadcn/ui frontend (`web/`) and a FastAPI backend (`api/`).
 - Added problem types, domain-neutral archetypes, guardrails and a service layer.
 - Added deep research, evidence-backed options and a detailed 18-slide deck.
